@@ -1,0 +1,47 @@
+[
+  {
+    "id": "sample-1",
+    "time": "08:15",
+    "sender": "Kak Dimas (Banjarmasin)",
+    "number": "6281234567801",
+    "text": "Pagi min, mau refill gas canister 4 kaleng di Green Rahayu Banjarmasin, ready?",
+    "reply": "Pagi Kak Dimas! Ready selalu ya kak, silakan langsung ke Cabang Banjarmasin tarif Rp 12.000/botol bawa sendiri.",
+    "status": "replied"
+  },
+  {
+    "id": "sample-2",
+    "time": "11:30",
+    "sender": "Kak Fajar (Palangka Raya)",
+    "number": "6285298765432",
+    "text": "Toko Karya Perdana buka jam berapa? Mau beli gas portable baru sama refill",
+    "reply": "Buka setiap hari kak! Alamat Jl. Seth Adji No. 70 Samping H. Kadap. Refill Rp 12.000 dan kaleng baru Rp 20.000.",
+    "status": "replied"
+  },
+  {
+    "id": "sample-3",
+    "time": "14:20",
+    "sender": "Kak Siti Mahasiswa",
+    "number": "6289612345678",
+    "text": "Kak mau tanya joki skripsi sistem informasi pakai CodeIgniter berapa ya dan ada garansi revisi?",
+    "reply": "Halo Kak Siti! Ada 100% garansi bebas revisi sampai lulus ya kak. Pengerjaan original dan turnitin ready.",
+    "status": "replied"
+  },
+  {
+    "id": "sample-4",
+    "time": "16:45",
+    "sender": "Kak Kevin",
+    "number": "6287754321098",
+    "text": "Min pesan Kopi Susu Bit & Bean botol 1 Liter sama roasted beans 250gr ready kah?",
+    "reply": "Ready kak Kevin! Kopi susu 1L siap simpan di kulkas dan roasted beans segar pilihan.",
+    "status": "replied"
+  },
+  {
+    "id": "sample-5",
+    "time": "19:10",
+    "sender": "Kak Rizky",
+    "number": "6281356789012",
+    "text": "Kak saya sudah transfer DP untuk pembuatan program skripsi, minta nomor WA Kak Nor Anisa langsung ya",
+    "reply": "Baik kak Rizky! Pesan dan bukti transfer sudah diteruskan langsung ke Kak Nor Anisa.",
+    "status": "handover_to_owner"
+  }
+]

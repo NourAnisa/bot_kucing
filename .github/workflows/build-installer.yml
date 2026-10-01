@@ -1,0 +1,35 @@
+# Builds SondeR_cat_setup.exe reproducibly and uploads it as a workflow
+# artifact.
+#
+# Trigger: manually from the Actions tab, or on a version tag push.
+name: Build installer
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mingw-w64
+        run: sudo apt-get update && sudo apt-get install -y
+             gcc-mingw-w64-x86-64 binutils-mingw-w64-x86-64
+
+      - name: Fetch miniz
+        run: |
+          curl -sL -o miniz.zip https://github.com/richgel999/miniz/archive/refs/heads/master.zip
+          unzip -q miniz.zip && mv miniz-master miniz
+          printf '#ifndef MINIZ_EXPORT_H\n#define MINIZ_EXPORT_H\n#define MINIZ_EXPORT\n#endif\n' > miniz/miniz_export.h
+
+      - name: Build installer
+        run: python3 build_exe.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SondeR_cat_setup
+          path: SondeR_cat_setup.exe

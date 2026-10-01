@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WhatsApp AI Bridge — Nor Anisa Business Ecosystem</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --border: #334155;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --primary: #0284c7;
+      --primary-hover: #0369a1;
+      --wa: #25d366;
+      --wa-dark: #128c7e;
+      --accent: #f59e0b;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 24px;
+    }
+    .container { max-width: 920px; margin: 0 auto; }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 20px;
+      margin-bottom: 24px;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand-logo {
+      width: 44px; height: 44px; background: var(--wa); border-radius: 12px;
+      display: flex; align-items: center; justify-content: center; font-size: 24px;
+    }
+    h1 { font-size: 20px; font-weight: 700; }
+    p.sub { font-size: 13px; color: var(--muted); }
+    .badge {
+      padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 600;
+      display: inline-flex; align-items: center; gap: 6px;
+    }
+    .badge.online { background: rgba(37, 211, 102, 0.15); color: #4ade80; border: 1px solid rgba(37, 211, 102, 0.3); }
+    .badge.pairing { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
+    .badge.connecting { background: rgba(2, 132, 199, 0.15); color: #38bdf8; border: 1px solid rgba(2, 132, 199, 0.3); }
+
+    .grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
+    @media (min-width: 768px) { .grid { grid-template-columns: 380px 1fr; } }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px;
+    }
+    .card-title {
+      font-size: 15px; font-weight: 600; margin-bottom: 14px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .pairing-box {
+      background: #0f172a;
+      border: 2px dashed #0284c7;
+      border-radius: 12px;
+      padding: 18px;
+      text-align: center;
+      margin: 14px 0;
+    }
+    .pairing-code {
+      font-family: monospace;
+      font-size: 32px;
+      font-weight: 800;
+      letter-spacing: 4px;
+      color: #38bdf8;
+      margin: 8px 0;
+    }
+    .btn {
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      transition: background 0.2s;
+    }
+    .btn:hover { background: var(--primary-hover); }
+    .btn.secondary { background: #334155; }
+    .btn.secondary:hover { background: #475569; }
+    .btn.danger { background: #dc2626; margin-top: 10px; }
+    .btn.danger:hover { background: #b91c1c; }
+
+    .steps { font-size: 12px; color: #cbd5e1; margin-top: 14px; line-height: 1.6; }
+    .steps ol { padding-left: 18px; margin-top: 6px; }
+    .steps li { margin-bottom: 4px; }
+
+    .qr-container { text-align: center; margin: 15px 0; }
+    .qr-container img { max-width: 200px; border-radius: 10px; background: #fff; padding: 8px; }
+
+    .chat-list { display: flex; flex-direction: column; gap: 12px; max-height: 520px; overflow-y: auto; }
+    .chat-bubble {
+      background: #0f172a;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 14px;
+      font-size: 13px;
+    }
+    .chat-header {
+      display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-bottom: 6px;
+    }
+    .chat-user { font-weight: 600; color: #38bdf8; }
+    .chat-text { margin-bottom: 6px; color: #e2e8f0; line-height: 1.4; }
+    .chat-reply {
+      background: rgba(37, 211, 102, 0.08);
+      border-left: 3px solid var(--wa);
+      padding: 8px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      color: #86efac;
+      white-space: pre-wrap;
+      line-height: 1.4;
+    }
+    .empty { text-align: center; padding: 50px 20px; color: var(--muted); font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="brand">
+        <div class="brand-logo">💬</div>
+        <div>
+          <h1>WhatsApp AI Bridge</h1>
+          <p class="sub">Nor Anisa Business Ecosystem · Refill Gas, JokiCoding & Bit and Bean Coffee ☕</p>
+        </div>
+      </div>
+      <div id="status-badge" class="badge connecting">Menghubungkan...</div>
+    </header>
+
+    <div class="grid">
+      <!-- Kiri: Status & Pairing -->
+      <div class="card">
+        <div class="card-title">
+          <span>Koneksi WhatsApp</span>
+          <span style="font-size: 12px; color: var(--muted);" id="target-number">+62 851-5513-3070</span>
+        </div>
+
+        <div id="pairing-section" style="display:none;">
+          <p style="font-size: 13px; color: #cbd5e1;">Tautkan nomor WhatsApp Anda dengan kode ini:</p>
+          <div class="pairing-box">
+            <div style="font-size: 11px; text-transform: uppercase; color: var(--muted);">Kode Pairing WhatsApp</div>
+            <div class="pairing-code" id="pairing-code">....-....</div>
+            <button class="btn secondary" id="copy-btn" onclick="copyCode()" style="font-size: 12px; padding: 6px 12px;">📋 Salin Kode</button>
+          </div>
+
+          <div class="steps">
+            <strong>Cara Tautkan di HP Anda:</strong>
+            <ol>
+              <li>Buka WhatsApp di HP Anda (Nomor: <b>0851-5513-3070</b>).</li>
+              <li>Buka <b>Titik Tiga (⋮)</b> / <b>Pengaturan</b> &gt; <b>Perangkat Tertaut</b>.</li>
+              <li>Ketuk <b>Tautkan Perangkat</b>.</li>
+              <li>Pilih opsi paling bawah: <i>"Tautkan dengan nomor telepon saja"</i>.</li>
+              <li>Masukkan kode di atas. Selesai!</li>
+            </ol>
+          </div>
+
+          <div id="qr-section" class="qr-container" style="display:none; margin-top:20px; border-top:1px solid var(--border); padding-top:15px;">
+            <p style="font-size: 12px; color: var(--muted); margin-bottom:8px;">Atau scan QR Code kamera:</p>
+            <img id="qr-img" src="" alt="QR Code">
+          </div>
+        </div>
+
+        <div id="connected-section" style="display:none;">
+          <div style="background: rgba(37, 211, 102, 0.1); border: 1px solid rgba(37, 211, 102, 0.3); border-radius: 10px; padding: 18px; text-align: center; margin-bottom: 16px;">
+            <div style="font-size: 36px; margin-bottom: 6px;">🟢</div>
+            <h3 style="font-size: 16px; color: #4ade80;">WhatsApp Terhubung!</h3>
+            <p style="font-size: 13px; color: #cbd5e1; margin-top: 4px;">Nomor: <b id="connected-phone">+62 851-5513-3070</b></p>
+            <p style="font-size: 12px; color: #86efac; margin-top: 6px;">AI Nadia & Bansos Router aktif melayani 3 usaha Anda.</p>
+          </div>
+
+          <div style="background: #0f172a; border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 16px; font-size: 12px; line-height: 1.5;">
+            <div style="font-weight: 700; color: #38bdf8; margin-bottom: 8px;">🔥 3 Unit Usaha Aktif Terintegrasi:</div>
+            <div style="margin-bottom: 8px;">
+              <b>1. Refill Gas Portable Kalimantan</b><br>
+              <span style="color: #94a3b8;">Refill: Rp 12.000/botol (bawa sendiri)</span><br>
+              📍 Banjarmasin (<a href="https://maps.app.goo.gl/XpGwbcBdSgavG6XA9" target="_blank" style="color: #38bdf8;">Maps</a>)<br>
+              📍 Palangka Raya (<a href="https://maps.app.goo.gl/5mXcbhgjDztzZLe27" target="_blank" style="color: #38bdf8;">Maps</a>)<br>
+              📍 Balikpapan (<a href="https://maps.app.goo.gl/gHZk2yU1qHqu3x1M6" target="_blank" style="color: #38bdf8;">Maps</a>)
+            </div>
+            <div style="margin-bottom: 8px;">
+              <b>2. JokiCoding & Akademik Master</b><br>
+              <span style="color: #94a3b8;">Ngoding, Skripsi, Jurnal, PPT, Print HVS. Garansi 100% Bebas Revisi.</span>
+            </div>
+            <div>
+              <b>3. Bit & Bean Coffee ☕</b><br>
+              <span style="color: #94a3b8;">Kopi susu gula aren, manual brew, kopi botol 1L, roasted beans teman ngoding.</span>
+            </div>
+          </div>
+
+          <button class="btn" id="toggle-autoreply-btn" onclick="toggleAutoReply()">⏸️ Jeda Auto-Reply AI</button>
+          <button class="btn danger" onclick="resetSession()">Tautkan Ulang / Logout</button>
+        </div>
+      </div>
+
+      <!-- Kanan: Live Log Percakapan -->
+      <div class="card">
+        <div class="card-title">
+          <span>Log Chat Masuk & Balasan AI</span>
+          <span style="font-size: 11px; color: var(--muted);"><span id="chat-count">0</span> pesan tercatat</span>
+        </div>
+
+        <div class="chat-list" id="chat-list">
+          <div class="empty">Belum ada pesan masuk. Begitu ada chat pelanggan di WhatsApp, obrolan dan balasan AI Nadia akan tampil langsung di sini.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentCode = "";
+
+    function copyCode() {
+      if (!currentCode) return;
+      navigator.clipboard.writeText(currentCode).then(() => {
+        const btn = document.getElementById('copy-btn');
+        btn.innerText = "✓ Kode Tersalin!";
+        setTimeout(() => btn.innerText = "📋 Salin Kode", 2000);
+      });
+    }
+
+    async function toggleAutoReply() {
+      const res = await fetch('/api/toggle-autoreply', { method: 'POST' });
+      const data = await res.json();
+      updateStatus();
+    }
+
+    async function resetSession() {
+      if (!confirm("Apakah Anda yakin ingin memutuskan tautan dan meminta kode pairing baru?")) return;
+      await fetch('/api/reset-session', { method: 'POST' });
+      updateStatus();
+    }
+
+    async function updateStatus() {
+      try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+
+        const badge = document.getElementById('status-badge');
+        const pairingSec = document.getElementById('pairing-section');
+        const connectedSec = document.getElementById('connected-section');
+        const pairingCodeEl = document.getElementById('pairing-code');
+        const qrSec = document.getElementById('qr-section');
+        const qrImg = document.getElementById('qr-img');
+        const toggleBtn = document.getElementById('toggle-autoreply-btn');
+
+        if (data.state === 'connected') {
+          badge.className = "badge online";
+          badge.innerText = "● Terhubung (AI Aktif)";
+          pairingSec.style.display = "none";
+          connectedSec.style.display = "block";
+          document.getElementById('connected-phone').innerText = "+" + data.number;
+          toggleBtn.innerText = data.autoReply ? "⏸️ Jeda Auto-Reply AI" : "▶️ Aktifkan Kembali Auto-Reply";
+          toggleBtn.style.background = data.autoReply ? "#0284c7" : "#f59e0b";
+        } else if (data.state === 'pairing' || data.pairingCode || data.qr) {
+          badge.className = "badge pairing";
+          badge.innerText = "⏳ Menunggu Kode Tautkan...";
+          pairingSec.style.display = "block";
+          connectedSec.style.display = "none";
+
+          if (data.pairingCode) {
+            currentCode = data.pairingCode;
+            pairingCodeEl.innerText = data.pairingCode;
+          }
+
+          if (data.qr) {
+            qrSec.style.display = "block";
+            qrImg.src = data.qr;
+          } else {
+            qrSec.style.display = "none";
+          }
+        } else {
+          badge.className = "badge connecting";
+          badge.innerText = "Menyiapkan Koneksi...";
+          pairingSec.style.display = "none";
+          connectedSec.style.display = "none";
+        }
+
+        // Render recent chats
+        const chatList = document.getElementById('chat-list');
+        document.getElementById('chat-count').innerText = data.recentChats.length;
+        if (data.recentChats.length > 0) {
+          chatList.innerHTML = data.recentChats.map(c => `
+            <div class="chat-bubble">
+              <div class="chat-header">
+                <span class="chat-user">👤 ${c.sender} (+${c.number})</span>
+                <span>${c.time}</span>
+              </div>
+              <div class="chat-text">${c.text}</div>
+              <div class="chat-reply">🤖 <b>Nadia (AI):</b><br>${c.reply}</div>
+            </div>
+          `).join('');
+        }
+      } catch (e) {
+        console.error("Gagal update status:", e);
+      }
+    }
+
+    setInterval(updateStatus, 3000);
+    updateStatus();
+  </script>
+</body>
+</html>

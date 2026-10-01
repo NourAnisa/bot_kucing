@@ -1,0 +1,103 @@
+// ==UserScript==
+// @name         SondeR Cat - Web AI Connector (Brave Browser)
+// @namespace    https://github.com/Verisonder/SondeR-Cat
+// @version      1.0.0
+// @description  Menghubungkan Web AI (ChatGPT, Claude, Gemini, DeepSeek, Brave Leo) ke kucing desktop SondeR Cat (Michan).
+// @author       Verisonder / Antigravity
+// @match        https://chatgpt.com/*
+// @match        https://chat.openai.com/*
+// @match        https://claude.ai/*
+// @match        https://gemini.google.com/*
+// @match        https://chat.deepseek.com/*
+// @match        https://search.brave.com/*
+// @grant        GM_xmlhttpRequest
+// @connect      127.0.0.1
+// @connect      localhost
+// @run-at       document-idle
+// ==/UserScript==
+
+(function () {
+  'use strict';
+
+  const SONDER_URL = 'http://127.0.0.1:19842/agent';
+  let isThinking = false;
+  let debounceTimer = null;
+
+  function getAiLabel() {
+    const host = window.location.hostname;
+    if (host.includes('claude.ai')) return 'Claude';
+    if (host.includes('chatgpt.com') || host.includes('openai.com')) return 'ChatGPT';
+    if (host.includes('gemini.google.com')) return 'Gemini';
+    if (host.includes('deepseek.com')) return 'DeepSeek';
+    if (host.includes('brave.com')) return 'Brave Leo';
+    return 'Web AI';
+  }
+
+  function notifyCat(state) {
+    const label = getAiLabel();
+    const payload = JSON.stringify({ state, label });
+
+    if (typeof GM_xmlhttpRequest !== 'undefined') {
+      GM_xmlhttpRequest({
+        method: 'POST',
+        url: SONDER_URL,
+        headers: { 'Content-Type': 'application/json' },
+        data: payload,
+        onload: () => console.log(`[SondeR Cat] Status sent: ${state} (${label})`),
+        onerror: () => console.warn('[SondeR Cat] Failed to reach local desktop cat webhook.')
+      });
+    } else {
+      fetch(SONDER_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload
+      }).catch(() => console.warn('[SondeR Cat] Desktop cat not running or webhook unreachable.'));
+    }
+  }
+
+  function checkStreaming() {
+    const host = window.location.hostname;
+    let generating = false;
+
+    if (host.includes('chatgpt.com') || host.includes('openai.com')) {
+      generating = !!document.querySelector(
+        'button[data-testid="stop-button"], button[aria-label*="Stop"], .result-streaming'
+      );
+    } else if (host.includes('claude.ai')) {
+      generating = !!document.querySelector(
+        'button[aria-label*="Stop Response"], button[aria-label*="Stop generating"], [data-testid="stop-generating"]'
+      );
+    } else if (host.includes('gemini.google.com')) {
+      generating = !!document.querySelector(
+        'button[aria-label*="Stop response"], button[aria-label*="Hentikan respons"], .animating, [data-test-id="stop-button"]'
+      );
+    } else if (host.includes('deepseek.com')) {
+      generating = !!document.querySelector(
+        '.ds-icon-button[aria-label*="Stop"], button[class*="stop"]'
+      );
+    } else if (host.includes('brave.com')) {
+      generating = !!document.querySelector(
+        '[data-testid*="leo-generating"], [class*="leo-streaming"]'
+      );
+    }
+
+    if (generating !== isThinking) {
+      isThinking = generating;
+      notifyCat(isThinking ? 'working' : 'done');
+    }
+  }
+
+  const observer = new MutationObserver(() => {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(checkStreaming, 250);
+  });
+
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['aria-label', 'data-testid', 'class', 'disabled']
+  });
+
+  console.log(`[SondeR Cat] Web connector active for ${getAiLabel()}! Michan will vibe to this AI.`);
+})();

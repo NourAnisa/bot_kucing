@@ -1,0 +1,14 @@
+[
+  {
+    "id": "task-welcome",
+    "agent": "olead",
+    "dept": "ops",
+    "title": "Inisialisasi Kantor Virtual SondeR AI Office",
+    "text": "Menyiapkan ruang kerja 3D dan menghubungkan 35 agen AI ke workspace.",
+    "state": "done",
+    "by": "studio",
+    "addedAt": 1790204191334,
+    "doneAt": 1790204251334,
+    "result": "Selamat datang di SondeR AI Office! Kantor 3D interaktif telah aktif dengan 35 agen dalam 6 divisi: Operations, Marketing, Sales, Delivery, Finance, dan Communications. Anda dapat mengklik agen manapun di tampilan 3D untuk memulai obrolan langsung atau memberikan brief pekerjaan."
+  }
+]

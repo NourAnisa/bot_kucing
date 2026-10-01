@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1e1b4b">
+  <title>SondeR AI Virtual Office — 3D Workspace</title>
+  <link rel="icon" href="./favicon.svg?v=djeonail-1" type="image/svg+xml">
+  <link rel="stylesheet" href="./studio.css">
+  <link rel="stylesheet" href="./preview.css">
+  <script src="./studio.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Lewati navigasi</a>
+<aside class="sidebar" id="sidebar">
+  <a class="brand" href="#overview">
+    <img src="./favicon.svg?v=djeonail-1" width="36" height="36" alt="Logo SondeR">
+    <span>SondeR AI<span class="brand-sub">VIRTUAL OFFICE</span></span>
+  </a>
+  <div class="workspace">
+    <span class="workspace-icon" style="background:#4f46e5;color:#fff;font-weight:bold;">S</span>
+    <span>NOR ANISA ECOSYSTEM<small>Refill Gas & JokiCoding</small></span>
+  </div>
+  <p class="nav-caption">WORKSPACE</p>
+  <nav aria-label="Navigasi utama">
+    <a href="#overview" data-nav="overview"><i data-icon="grid"></i> Overview</a>
+    <a href="#office" data-nav="office"><i data-icon="office"></i> Virtual office</a>
+    <a href="#chat" data-nav="chat"><i data-icon="chat"></i> Percakapan</a>
+    <a href="#tasks" data-nav="tasks"><i data-icon="tasks"></i> Tugas & hasil<span id="task-count" class="count">0</span></a>
+    <a href="#data" data-nav="data"><i data-icon="database"></i> Data & integrasi</a>
+  </nav>
+  <div class="sidebar-bottom">
+    <div class="workspace-note">
+      <span class="pill" style="background:#10b981;color:#fff;">AI Aktif</span>
+      <p>35 Agen AI & 6 Divisi Siap Kerja.<br>Terhubung ke 9Router / OpenAI.</p>
+    </div>
+    <button class="profile" id="about">
+      <span class="avatar owner" style="background:#4f46e5;color:#fff;">N</span>
+      <span>Nor Anisa<small>Workspace Owner</small></span>
+      <i data-icon="chevron"></i>
+    </button>
+  </div>
+</aside>
+<div class="app">
+  <header class="topbar">
+    <button class="icon-button menu-toggle" id="menu-toggle" aria-label="Buka navigasi" aria-expanded="false"><i data-icon="menu"></i></button>
+    <span class="breadcrumb">Workspace <span>/</span> <b id="page-name">Overview</b></span>
+    <div class="top-actions">
+      <span class="connection" id="connection"><span class="dot online"></span> AI Online</span>
+      <button class="icon-button" id="refresh" aria-label="Segarkan data"><i data-icon="refresh"></i></button>
+      <span class="avatar owner small" style="background:#4f46e5;color:#fff;">N</span>
+    </div>
+  </header>
+  <div class="preview-banner" style="background:linear-gradient(90deg, #1e1b4b, #312e81); border-bottom:1px solid rgba(255,255,255,0.1); color:#e0e7ff;">
+    <strong>🏢 NOR ANISA AI BUSINESS OFFICE</strong>
+    <span>Refill Gas Portable Kalimantan · JokiCoding & Akademik · 35 Agen AI 3D</span>
+    <div class="preview-actions">
+      <a href="#office" style="background:#4f46e5;color:#fff;border-radius:6px;padding:4px 12px;text-decoration:none;font-weight:600;">Jelajahi Kantor 3D →</a>
+    </div>
+  </div>
+  <main id="main" tabindex="-1"></main>
+  <footer>© 2026 SondeR Cat & Nor Anisa Ecosystem · Virtual AI Office <span>Terintegrasi dengan <a href="http://127.0.0.1:19842" target="_blank" rel="noopener noreferrer">SondeR Cat</a></span></footer>
+</div>
+<dialog id="detail-dialog">
+  <div class="dialog-top">
+    <h2 id="dialog-title"></h2>
+    <button class="icon-button" id="close-dialog" aria-label="Tutup detail"><i data-icon="close"></i></button>
+  </div>
+  <div id="dialog-content"></div>
+</dialog>
+<div id="toast" role="status" hidden></div>
+</body>
+</html>
