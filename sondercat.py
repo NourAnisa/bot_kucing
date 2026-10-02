@@ -48,7 +48,7 @@ def _fatal(title, details):
             ctypes.windll.user32.MessageBoxW(
                 0, f"{title}\n\n{details[-900:]}\n\n"
                    f"Full details saved to:\n{ERROR_LOG}",
-                "SondeR cat couldn't start", 0x10)
+                "Noura Cat couldn't start", 0x10)
             shown = True
         except Exception:
             pass
@@ -145,7 +145,7 @@ except Exception:
            + traceback.format_exc())
     sys.exit(1)
 
-APP_NAME = "SondeR cat"
+APP_NAME = "Noura Cat"
 APP_VERSION = "9.11.0"
 APP_BUILD = "0716ah"
 
