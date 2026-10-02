@@ -1,4 +1,4 @@
-# Noura Cat 🐾
+# Neko Cat 🐾
 
 A pixel cat that lives on your desktop — naps on your windows, vibes to your music, and can even answer questions with a multi-model AI brain.
 For **Windows** and **Linux**. Free, open source, no telemetry, no accounts.
