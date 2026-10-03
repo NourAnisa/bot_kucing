@@ -1,15 +1,15 @@
 @echo off
 setlocal EnableExtensions
-title SondeR cat installer
+title Neko Cat installer
 echo.
-echo    /\_/\     SondeR cat installer
+echo    /\_/\     Neko Cat installer
 echo   ( o.o )    everything included - no pip, no downloads needed
 echo.
 set "SRC=%~dp0"
 set "DEST=%LOCALAPPDATA%\SondeRcat"
 
 echo [..] Stopping any running cats...
-powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -like 'python*' -and $_.CommandLine -match 'sondercat' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }" >nul 2>&1
+powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -like 'python*' -and ($_.CommandLine -match 'nekocat' -or $_.CommandLine -match 'sondercat') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }" >nul 2>&1
 
 echo [..] Looking for Python...
 set "PY="
@@ -57,25 +57,25 @@ set "PYW=%PY:python.exe=pythonw.exe%"
 if not exist "%PYW%" set "PYW=%PY%"
 
 echo [..] Creating Desktop shortcut...
-set "LNK=%USERPROFILE%\Desktop\SondeR cat.lnk"
-powershell -NoProfile -Command "$q=[char]34;$s=(New-Object -ComObject WScript.Shell).CreateShortcut('%LNK%');$s.TargetPath='%PYW%';$s.Arguments=$q+'%DEST%\sondercat\sondercat.py'+$q;$s.WorkingDirectory='%DEST%\sondercat';$s.IconLocation='%DEST%\sondercat\sondercat_gray.ico';$s.Save()" >nul 2>&1
+set "LNK=%USERPROFILE%\Desktop\Neko Cat.lnk"
+powershell -NoProfile -Command "$q=[char]34;$s=(New-Object -ComObject WScript.Shell).CreateShortcut('%LNK%');$s.TargetPath='%PYW%';$s.Arguments=$q+'%DEST%\sondercat\nekocat.py'+$q;$s.WorkingDirectory='%DEST%\sondercat';$s.IconLocation='%DEST%\sondercat\nekocat_gray.ico';$s.Save()" >nul 2>&1
 if exist "%LNK%" goto lnkok
 rem fallback launcher if shortcut creation was restricted
 (
   echo @echo off
-  echo start "" "%PYW%" "%DEST%\sondercat\sondercat.py"
-) > "%USERPROFILE%\Desktop\SondeR cat.bat"
-set "LNK=%USERPROFILE%\Desktop\SondeR cat.bat"
+  echo start "" "%PYW%" "%DEST%\sondercat\nekocat.py"
+) > "%USERPROFILE%\Desktop\Neko Cat.bat"
+set "LNK=%USERPROFILE%\Desktop\Neko Cat.bat"
 :lnkok
 
-choice /C YN /N /M "Start SondeR cat automatically when Windows starts? [Y/N] "
+choice /C YN /N /M "Start Neko Cat automatically when Windows starts? [Y/N] "
 if not %errorlevel%==1 goto nostartup
 copy /Y "%LNK%" "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\" >nul 2>&1
 :nostartup
 
 echo.
 echo [OK] Installed! Launching your cat...
-start "" "%PYW%" "%DEST%\sondercat\sondercat.py"
+start "" "%PYW%" "%DEST%\sondercat\nekocat.py"
 timeout /t 2 >nul
 exit /b 0
 

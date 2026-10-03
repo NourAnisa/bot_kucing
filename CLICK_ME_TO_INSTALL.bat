@@ -1,7 +1,7 @@
 @echo off
-title SondeR cat - one click install
+title Neko Cat - one click install
 echo.
-echo    /\_/\     SondeR cat
+echo    /\_/\     Neko Cat
 echo   ( o.o )    Setting everything up for you...
 echo.
 if exist "%~dp0install.bat" (
