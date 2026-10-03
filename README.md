@@ -22,7 +22,12 @@ Dibuat untuk **Windows** dan **Linux**. Ringan, open source, tanpa langganan, da
 - 🔥 **Overheat Mode** — Jika Anda mengetik sangat cepat, kucing akan memerah dan mengeluarkan kepulan uap di atas kepalanya.
 - 📜 **Paper Unroll** — Scroll mouse Anda dan kucing akan membuka gulungan kertas pixel.
 
-### 2. Rekan Kerja Produktif (Productivity Companion)
+### 2. Rekan Kerja Produktif & Pengingat Kesehatan 🧘‍♂️
+- 🧘‍♂️ **Pengingat Peregangan (Stretch Reminder)** — Menjaga kesehatan ergonomis Anda saat bekerja di depan monitor dengan animasi peregangan kucing lucu. Pilihan interval 20, 30, 45, 60, 90 menit atau kustom, dilengkapi tips panduan peregangan leher, pergelangan tangan, dan mata (metode 20-20-20). Akses instan lewat menu *"Peregangan Sekarang!"*.
+- 💧 **Pengingat Minum Air (Water Drink Reminder)** — Pantau hidrasi harian dengan target 8 gelas (~2000 ml). Catat asupan langsung lewat menu *"Catat 1 Gelas Air 🥛 (+250 ml)"*, pantau progres melalui status asupan harian, dan aktifkan alarm pengingat teratur (30/45/60/90 menit).
+- 📅 **Pengingat Jadwal Agenda (Schedule Alarm)** — Jadwalkan jam rapat, bimbingan, kuliah, atau kegiatan harian lainnya (`HH:mm`). Neko Cat akan mengeong dan menampilkan balon dialog tepat waktu. Mendukung mode harian (daily) maupun satu kali.
+- 💬 **Pengingat Pesan (Message Reminders & Sticky Notes)** — Catat pesan pengingat bebas (misal: *"Matikan kompor"*, *"Kirim laporan"*) berdasarkan jam atau hitungan mundur menit. Juga dapat menyematkan catatan penting melayang di atas kepala kucing (*Pin a note*).
+- 🍅 **Pomodoro Timer** — Timer fokus dan istirahat pixel interaktif di samping kucing (preset 25/5 min, 50/10 min, loop, atau kustom).
 - 😴 **Napping & Sleep** — Tertidur saat Anda tidak aktif; bangun dengan suara lembut *"mrrp?"*.
 - 🧼 **Grooming** — Sesekali berhenti untuk menjilati kaki dan membersihkan diri.
 - 🍽️ **Feeding Bowls** *(Opsional)* — Sediakan mangkuk makanan dan air di layar (*Behavior → Feeding bowls*).
@@ -30,8 +35,6 @@ Dibuat untuk **Windows** dan **Linux**. Ringan, open source, tanpa langganan, da
 - ☂️ **Parachute Drop** — Jika jendela ditutup saat kucing berada di atasnya, kucing akan membuka parasut pixel dan meluncur anggun ke bagian bawah layar.
 - 📺 **Auto-Hide** — Otomatis menyembunyikan diri saat Anda memutar video fullscreen.
 - 🎧 **Music Vibes** — Mengenakan headphone pixel saat mendeteksi ada audio atau musik di komputer Anda.
-- 🧘 **Stretch Reminders** — Pengingat peregangan tubuh setiap 30/50/90 menit.
-- 🍅 **Pomodoro Timer** — Timer fokus dan istirahat pixel mengambang di samping kucing.
 
 ### 3. 🧠 Otak AI Multi-Model (Smart Auto-Failover)
 Neko Cat dilengkapi integrasi kecerdasan buatan yang sangat tangguh:

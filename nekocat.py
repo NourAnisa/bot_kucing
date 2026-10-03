@@ -182,7 +182,7 @@ WIGGLE_SENS = {"high": (3, 12), "medium": (4, 20), "low": (6, 30)}
 
 CAT_DEFAULTS = {"palette": "orange tabby", "pattern": "tabby",
                 "custom_body": None, "scale": 6, "pos": None}
-GLOBAL_DEFAULTS = {"stretch_minutes": 50, "sleep_seconds": 180,
+GLOBAL_DEFAULTS = {"stretch_minutes": 30, "sleep_seconds": 180,
                    "auto_peek": True, "chase_enabled": True,
                    "name": "", "pinned": "", "reminders": [], "laser_only": True, "wiggle_hide": True,
                    "wiggle_sens": "medium",
@@ -207,10 +207,42 @@ GLOBAL_DEFAULTS = {"stretch_minutes": 50, "sleep_seconds": 180,
                    "feeding": False, "food_level": 1.0, "water_level": 1.0,
                    "feed_last": 0, "bowl_pos": None, "bowl_hide_apps": False,
                    "guard_mode": False, "guard_timer_min": 0,
-                   "hide_mode": False}
+                   "hide_mode": False,
+                   "water_remind_minutes": 45,
+                   "water_intake_count": 0,
+                   "water_intake_date": "",
+                   "schedules": []}
 
 (IDLE, KNEAD, SLEEP, CHASE, DRAG, STRETCH,
  OVERHEAT, SCROLLPLAY, PEEK, THINK, DANCE) = range(11)
+
+# Daftar tips & panduan gerakan peregangan meja kerja (ergonomis)
+STRETCH_TIPS = [
+    (
+        "Peregangan Leher & Pundak 🧘",
+        "Tundukkan kepala perlahan ke dada (5 detik), tolehkan ke kanan dan kiri. Putar kedua bahu ke belakang 5 kali untuk melepaskan ketegangan leher!"
+    ),
+    (
+        "Aturan Mata 20-20-20 👀",
+        "Alihkan pandangan dari layar ke objek sejauh 6 meter selama 20 detik untuk mengistirahatkan otot fokus mata Anda."
+    ),
+    (
+        "Pergelangan Tangan & Jari 👐",
+        "Luruskan satu tangan ke depan, tarik lembut telapak tangan ke belakang selama 10 detik. Kibaskan jari tangan agar peredaran darah lancar (anti-CTS)!"
+    ),
+    (
+        "Peregangan Punggung & Pinggang 🚶",
+        "Berdirilah sejenak dari kursi! Angkat kedua tangan lurus ke atas setinggi mungkin, tarik napas dalam, lalu condongkan tubuh perlahan ke kanan dan kiri."
+    ),
+    (
+        "Hidrasi Tubuh 💧",
+        "Saatnya minum segelas air putih! Menjaga hidrasi penting untuk konsentrasi dan mencegah mata kering saat bekerja di depan komputer."
+    ),
+    (
+        "Peregangan Kaki & Betis 🦵",
+        "Berdiri dan jinjitkan kaki selama 5 detik, lakukan 5 kali. Ini membantu melancarkan peredaran darah dari kaki kembali ke jantung."
+    ),
+]
 
 
 # ----------------------------------------------------------------- config ----
@@ -2982,8 +3014,10 @@ class Manager(QObject):
         self.fullscreen_active = False
         self._fs_streak = 0
         self.stretch_until = 0.0
-        mins = self.cfg["global"]["stretch_minutes"]
+        mins = self.cfg["global"].get("stretch_minutes", 30)
         self.next_stretch = time.time() + mins * 60 if mins > 0 else None
+        wmins = self.cfg["global"].get("water_remind_minutes", 45)
+        self.next_water = time.time() + wmins * 60 if wmins > 0 else None
 
         self.pomo_end = None
         self.pomo_kind = None
@@ -3083,25 +3117,34 @@ class Manager(QObject):
         elif self.tray and not self.agent_working:
             self.tray.setToolTip(APP_NAME)
 
-        # stretch reminder
+        # 1. Pengingat Peregangan
         if self.next_stretch and now >= self.next_stretch:
-            mins = self.cfg["global"]["stretch_minutes"]
-            self.next_stretch = now + mins * 60
-            self.stretch_until = now + 6
-            for c in self.cats:
-                c._unpeek()
-            self.say_primary("Stretch time! 🐾  Roll those shoulders", 6)
+            self.trigger_stretch(manual=False)
 
-        # message reminders (persisted)
+        # 2. Pengingat Minum Air
+        if hasattr(self, "next_water") and self.next_water and now >= self.next_water:
+            self.trigger_water(manual=False)
+
+        # 3. Pengingat Jadwal (Alarm Jam & Menit)
+        self.check_schedules(now)
+
+        # 4. Pengingat Pesan (Message Reminders)
         rems = self.cfg["global"].get("reminders", [])
         due = [r for r in rems if r[0] <= now]
         if due:
             self.cfg["global"]["reminders"] = [r for r in rems if r[0] > now]
             save_config(self.cfg)
             for (_t, text) in due:
-                self.celebrate(self._named(text))
+                user_name = self.cfg["global"].get("name", "").strip()
+                call_name = f"kak {user_name}" if user_name else "kak"
+                self.celebrate(f"Pengingat: {text}")
                 if self.primary():
-                    self.primary().say(self._named(text), 12, "#d9453a")
+                    self.primary().say(f"💬 PENGINGAT UNTUK {call_name.upper()}:\n{text}", 12, "#d32f2f")
+                if hasattr(self, "meow") and self.meow:
+                    try:
+                        self.meow.play()
+                    except Exception:
+                        pass
 
         # agent status
         kind, label = read_agent_status()
@@ -3523,8 +3566,253 @@ class Manager(QObject):
         self.cfg["global"]["stretch_minutes"] = mins
         save_config(self.cfg)
         self.next_stretch = time.time() + mins * 60 if mins > 0 else None
-        self.say_primary("Stretch reminders off" if mins == 0
-                         else f"I'll remind you every {mins} min")
+        if mins == 0:
+            self.say_primary("Pengingat peregangan dinonaktifkan 💤", 3)
+        else:
+            self.say_primary(f"Pengingat peregangan aktif tiap {mins} menit! 🧘‍♂️", 3)
+
+    def trigger_stretch(self, manual=False):
+        now = time.time()
+        mins = self.cfg["global"].get("stretch_minutes", 30) or 30
+        self.stretch_until = now + 9
+        if not manual:
+            self.next_stretch = now + mins * 60
+        for c in self.cats:
+            c._unpeek()
+            c.state = STRETCH
+        if hasattr(self, "meow") and self.meow:
+            try:
+                self.meow.play()
+            except Exception:
+                pass
+
+        tip_title, tip_desc = random.choice(STRETCH_TIPS)
+        user_name = self.cfg["global"].get("name", "").strip()
+        call_name = f"kak {user_name}" if user_name else "kak"
+        bubble_text = f"Waktunya peregangan sebentar, {call_name}! 🧘‍♀️\n• {tip_title}\n{tip_desc}"
+        self.say_primary(bubble_text, 9, "#2e7d32")
+        self.celebrate("Waktunya peregangan! 🧘‍♂️")
+
+    def show_stretch_guide(self):
+        guide_text = (
+            "🧘 PANDUAN PEREGANGAN DI MEJA KERJA (ERGONOMIS)\n\n"
+            "1. Leher & Pundak:\n"
+            "   Tundukkan kepala perlahan ke arah dada (tahan 5 detik).\n"
+            "   Tolehkan ke kanan dan kiri, lalu putar bahu ke belakang 5 kali.\n\n"
+            "2. Aturan Istirahat Mata 20-20-20:\n"
+            "   Setiap 20 menit menatap layar, alihkan pandangan ke objek\n"
+            "   berjarak 6 meter selama 20 detik agar mata tidak tegang.\n\n"
+            "3. Pergelangan Tangan & Jari (Anti-CTS):\n"
+            "   Luruskan lengan ke depan, tekuk telapak tangan ke belakang\n"
+            "   dengan lembut selama 10 detik, lalu kibaskan jari-jari.\n\n"
+            "4. Punggung & Pinggang:\n"
+            "   Berdirilah sejenak! Tarik kedua tangan lurus ke atas,\n"
+            "   ambil napas dalam-dalam, lalu condongkan tubuh ke samping.\n\n"
+            "5. Hidrasi Tubuh:\n"
+            "   Minumlah segelas air putih untuk menjaga fokus dan kelembapan mata."
+        )
+        QMessageBox.information(None, "Panduan Peregangan Neko Cat 🧘‍♂️", guide_text)
+
+    # ------------------------------------------------ Pengingat Minum Air 💧 ---
+    def set_water_reminder(self, mins):
+        self.cfg["global"]["water_remind_minutes"] = mins
+        save_config(self.cfg)
+        self.next_water = time.time() + mins * 60 if mins > 0 else None
+        if mins == 0:
+            self.say_primary("Pengingat minum air dinonaktifkan 💤", 3)
+        else:
+            self.say_primary(f"Pengingat minum air aktif tiap {mins} menit! 🥛", 3)
+
+    def custom_water_reminder(self):
+        m = pick_minutes("Pengingat Minum Air", "Ingatkan saya minum air setiap (menit):",
+                         max(1, self.cfg["global"].get("water_remind_minutes", 45) or 45))
+        if m is not None and m > 0:
+            self.set_water_reminder(m)
+
+    def log_water_drink(self):
+        today = time.strftime("%Y-%m-%d")
+        g = self.cfg["global"]
+        if g.get("water_intake_date") != today:
+            g["water_intake_date"] = today
+            g["water_intake_count"] = 0
+        g["water_intake_count"] = g.get("water_intake_count", 0) + 1
+        save_config(self.cfg)
+        count = g["water_intake_count"]
+        ml = count * 250
+        target = 8
+        user_name = g.get("name", "").strip()
+        call_name = f"kak {user_name}" if user_name else "kak"
+        msg = f"Segar! 🥛 {call_name} sudah minum {count}/{target} gelas (~{ml} ml) hari ini! Tetap terhidrasi yaa!"
+        self.say_primary(msg, 6, "#1976d2")
+        self.celebrate(f"Minum air {count}/{target} gelas! 💧")
+
+    def trigger_water(self, manual=False):
+        now = time.time()
+        mins = self.cfg["global"].get("water_remind_minutes", 45) or 45
+        if not manual:
+            self.next_water = now + mins * 60
+        for c in self.cats:
+            c._unpeek()
+        if hasattr(self, "meow") and self.meow:
+            try:
+                self.meow.play()
+            except Exception:
+                pass
+
+        user_name = self.cfg["global"].get("name", "").strip()
+        call_name = f"kak {user_name}" if user_name else "kak"
+        tips = [
+            "Minum segelas air putih sekarang untuk menjaga konsentrasi otak dan menghindari lelah!",
+            "Waktunya rehidrasi! Tubuh butuh cairan agar mata tidak cepat lelah dan terhindar dari dehidrasi.",
+            "Segelas air putih segar siap menemani sesi kerja/koding Anda berikutnya!",
+            "Jangan lupa minum air yaa, ginjal dan tubuh berterima kasih untuk hidrasi sehat ini!"
+        ]
+        chosen_tip = random.choice(tips)
+        text = f"💧 Waktunya Minum Air, {call_name}!\n• {chosen_tip}\n(Klik menu: Catat 1 Gelas Air 🥛)"
+        self.say_primary(text, 9, "#0288d1")
+        self.celebrate("Waktunya Minum Air! 🥛")
+
+    def reset_water_tracker(self):
+        self.cfg["global"]["water_intake_count"] = 0
+        self.cfg["global"]["water_intake_date"] = time.strftime("%Y-%m-%d")
+        save_config(self.cfg)
+        self.say_primary("Catatan minum air hari ini di-reset ke 0 gelas. 🥛", 3)
+
+    def show_water_info(self):
+        g = self.cfg["global"]
+        today = time.strftime("%Y-%m-%d")
+        if g.get("water_intake_date") != today:
+            g["water_intake_date"] = today
+            g["water_intake_count"] = 0
+            save_config(self.cfg)
+        count = g.get("water_intake_count", 0)
+        ml = count * 250
+        status_text = (
+            f"💧 STATUS ASUPAN AIR HARI INI ({today})\n\n"
+            f"• Jumlah Diminum: {count} dari 8 Gelas\n"
+            f"• Estimasi Volume: ~{ml} ml / 2000 ml\n"
+            f"• Interval Pengingat: {g.get('water_remind_minutes', 45)} Menit\n\n"
+            "💡 TIPS KESEHATAN:\n"
+            "- Minum air secara teratur mencegah sakit kepala, kelelahan, dan mata kering.\n"
+            "- Usahakan mencapai 8 gelas air per hari saat beraktivitas di depan laptop."
+        )
+        QMessageBox.information(None, "Status Minum Air Neko Cat 💧", status_text)
+
+    # ------------------------------------------------ Pengingat Jadwal 📅 ---
+    def add_schedule(self):
+        from PySide6.QtWidgets import (QDialog, QVBoxLayout, QLabel, QTimeEdit,
+                                       QLineEdit, QCheckBox, QDialogButtonBox)
+        from PySide6.QtCore import QTime
+        dlg = QDialog()
+        dlg.setWindowTitle("Tambah Jadwal Agenda 📅")
+        lay = QVBoxLayout(dlg)
+        
+        lay.addWidget(QLabel("Waktu Agenda (Jam:Menit):"))
+        te = QTimeEdit()
+        te.setDisplayFormat("HH:mm")
+        te.setTime(QTime.currentTime().addSecs(1800))
+        lay.addWidget(te)
+        
+        lay.addWidget(QLabel("Judul Agenda / Catatan Kegiatan:"))
+        le = QLineEdit()
+        le.setPlaceholderText("Contoh: Rapat Dosen, Bimbingan Skripsi, Webinar")
+        lay.addWidget(le)
+
+        cb_repeat = QCheckBox("Ulangi Setiap Hari (Daily)")
+        cb_repeat.setChecked(True)
+        lay.addWidget(cb_repeat)
+
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        lay.addWidget(bb)
+
+        if dlg.exec() != QDialog.Accepted:
+            return
+        title = le.text().strip()
+        if not title:
+            return
+        time_str = te.time().toString("HH:mm")
+        schedules = self.cfg["global"].setdefault("schedules", [])
+        schedules.append({
+            "time": time_str,
+            "title": title,
+            "repeat": cb_repeat.isChecked(),
+            "last_date": ""
+        })
+        save_config(self.cfg)
+        self.say_primary(f"Jadwal tersimpan: Pukul {time_str} — {title}! 📅", 4)
+
+    def check_schedules(self, now):
+        schedules = self.cfg["global"].get("schedules", [])
+        if not schedules:
+            return
+        cur_date = time.strftime("%Y-%m-%d")
+        cur_hm = time.strftime("%H:%M")
+        
+        changed = False
+        remaining = []
+        for s in schedules:
+            t_str = s.get("time", "")
+            title = s.get("title", "")
+            repeat = s.get("repeat", True)
+            last_d = s.get("last_date", "")
+
+            # Jika waktu sekarang cocok dan belum bunyi hari ini
+            if t_str == cur_hm and last_d != cur_date:
+                s["last_date"] = cur_date
+                changed = True
+                user_name = self.cfg["global"].get("name", "").strip()
+                call_name = f"kak {user_name}" if user_name else "kak"
+                msg = f"⏰ PENGINGAT JADWAL ({t_str})!\n• {title}\nSemangat yaa {call_name}! 📅"
+                self.say_primary(msg, 12, "#f57c00")
+                self.celebrate(f"Jadwal: {title}! 📅")
+                if hasattr(self, "meow") and self.meow:
+                    try:
+                        self.meow.play()
+                    except Exception:
+                        pass
+            
+            # Jika sekali pakai dan sudah lewat tanggalnya, hapus
+            if not repeat and last_d == cur_date and t_str < cur_hm:
+                changed = True
+                continue
+            remaining.append(s)
+            
+        if changed:
+            self.cfg["global"]["schedules"] = remaining
+            save_config(self.cfg)
+
+    def show_schedules(self):
+        schedules = self.cfg["global"].get("schedules", [])
+        if not schedules:
+            QMessageBox.information(None, "Daftar Jadwal Agenda 📅", "Belum ada jadwal yang disimpan.\n\nKlik 'Tambah Jadwal Agenda' untuk menambahkan!")
+            return
+        lines = ["📅 DAFTAR JADWAL AGENDA:\n"]
+        for i, s in enumerate(sorted(schedules, key=lambda x: x.get("time", "")), 1):
+            rep = "(Setiap Hari)" if s.get("repeat", True) else "(Sekali Saja)"
+            lines.append(f"{i}. Pukul {s.get('time')} — {s.get('title')} {rep}")
+        QMessageBox.information(None, "Daftar Jadwal Agenda 📅", "\n".join(lines))
+
+    def clear_schedules(self):
+        self.cfg["global"]["schedules"] = []
+        save_config(self.cfg)
+        self.say_primary("Semua jadwal agenda telah dihapus. 🗑️", 3)
+
+    # ------------------------------------------------ Pengingat Pesan 💬 ---
+    def show_message_reminders(self):
+        rems = self.cfg["global"].get("reminders", [])
+        now = time.time()
+        active = [r for r in rems if r[0] > now]
+        if not active:
+            QMessageBox.information(None, "Daftar Pengingat Pesan 💬", "Tidak ada pesan pengingat yang sedang antre.")
+            return
+        lines = ["💬 DAFTAR PENGINGAT PESAN AKTIF:\n"]
+        for i, (t, text) in enumerate(sorted(active, key=lambda x: x[0]), 1):
+            mins_left = max(1, int((t - now) / 60))
+            time_str = time.strftime("%H:%M", time.localtime(t))
+            lines.append(f"{i}. [{time_str} - ~{mins_left} menit lagi] \"{text}\"")
+        QMessageBox.information(None, "Daftar Pengingat Pesan 💬", "\n".join(lines))
 
     def set_wiggle_sens(self, key):
         self.cfg["global"]["wiggle_sens"] = key
@@ -5485,14 +5773,14 @@ class Manager(QObject):
         t = self.pick_reminder_time()
         if t is None:
             return
-        msg, ok = QInputDialog.getText(None, "Set a reminder",
-                                       "What should I say?")
+        msg, ok = QInputDialog.getText(None, "Buat Pengingat Pesan 💬",
+                                       "Pesan yang ingin diingatkan oleh Neko Cat:")
         if not ok or not msg.strip():
             return
         self.cfg["global"].setdefault("reminders", []).append([t, msg.strip()])
         save_config(self.cfg)
         mins = max(1, int((t - time.time()) / 60))
-        self.say_primary(f"Okay! I'll meow in ~{mins} min", 3)
+        self.say_primary(f"Siap! Neko Cat akan mengeong & mengingatkan dalam ~{mins} menit 💬", 4)
 
     @staticmethod
     def pick_reminder_time():
@@ -5502,16 +5790,16 @@ class Manager(QObject):
                                        QRadioButton, QTimeEdit, QVBoxLayout)
         from PySide6.QtCore import QTime
         dlg = QDialog()
-        dlg.setWindowTitle("Set a reminder")
+        dlg.setWindowTitle("Atur Waktu Pengingat ⏰")
         lay = QVBoxLayout(dlg)
-        r_at = QRadioButton("At this time:")
+        r_at = QRadioButton("Pada jam tertentu (Hari Ini / Besok):")
         r_at.setChecked(True)
         lay.addWidget(r_at)
         at = QTimeEdit()
         at.setDisplayFormat("HH:mm")
         at.setTime(QTime.currentTime().addSecs(3600))
         lay.addWidget(at)
-        r_in = QRadioButton("Or in (from now):")
+        r_in = QRadioButton("Atau durasi dari sekarang:")
         lay.addWidget(r_in)
         dur = QTimeEdit()
         dur.setDisplayFormat("HH:mm")
@@ -5542,25 +5830,25 @@ class Manager(QObject):
     def clear_reminders(self):
         self.cfg["global"]["reminders"] = []
         save_config(self.cfg)
-        self.say_primary("Reminders cleared")
+        self.say_primary("Semua pengingat pesan telah dibersihkan! 🗑️", 3)
 
     def set_pinned(self):
         cur = self.cfg["global"].get("pinned", "")
-        msg, ok = QInputDialog.getText(None, "Pin a note",
-                                       "Note to keep above my head:", text=cur)
+        msg, ok = QInputDialog.getText(None, "Sematkan Catatan 📌",
+                                       "Catatan yang ditampilkan di atas kepala:", text=cur)
         if ok:
             self.cfg["global"]["pinned"] = msg.strip()
             save_config(self.cfg)
 
     def set_name(self):
         cur = self.cfg["global"].get("name", "")
-        msg, ok = QInputDialog.getText(None, "Tell the cat your name",
-                                       "What should I call you?", text=cur)
+        msg, ok = QInputDialog.getText(None, "Beritahu Kucing Namamu 🏷️",
+                                       "Kucing harus memanggilmu siapa?", text=cur)
         if ok:
             self.cfg["global"]["name"] = msg.strip()
             save_config(self.cfg)
             if msg.strip():
-                self.say_primary(f"nyang, {msg.strip()}! 🐾", 3)
+                self.say_primary(f"Nyang, salam kenal kak {msg.strip()}! 🐾", 3)
 
     def toggle_chase(self):
         g = self.cfg["global"]
@@ -5796,6 +6084,16 @@ class CatWindow(QWidget):
         menu = QMenu(self)
         mgr = self.mgr
 
+        # Aksi Cepat Kesehatan & Pengingat di Paling Atas
+        act_stretch_now = QAction("🧘‍♂️ Peregangan Sekarang!", menu)
+        act_stretch_now.triggered.connect(lambda: mgr.trigger_stretch(manual=True))
+        menu.addAction(act_stretch_now)
+
+        act_water_now = QAction("🥛 Catat 1 Gelas Air (+250 ml)", menu)
+        act_water_now.triggered.connect(mgr.log_water_drink)
+        menu.addAction(act_water_now)
+        menu.addSeparator()
+
         cust = menu.addMenu("Customization 🎨")
         fur = cust.addMenu("Fur color")
         for name in sprites.PALETTES:
@@ -5872,42 +6170,120 @@ class CatWindow(QWidget):
         more.setEnabled(False)
         thm.addAction(more)
 
+        remm = menu.addMenu("Pengingat & Alarm ⏰")
 
-        remm = menu.addMenu("Reminders ⏰")
-        pomo = remm.addMenu("Pomodoro")
-        for label, mins, kind in (("Focus 25 min", 25, "focus"),
-                                  ("Focus 50 min", 50, "focus"),
-                                  ("Break 5 min", 5, "break")):
+        # 1. Pengingat Peregangan 🧘‍♂️
+        stretch_m = remm.addMenu("Pengingat Peregangan 🧘‍♂️")
+        act_str_now = QAction("Peregangan Sekarang! 🧘‍♂️", menu)
+        act_str_now.triggered.connect(lambda: mgr.trigger_stretch(manual=True))
+        stretch_m.addAction(act_str_now)
+        act_str_guide = QAction("Panduan Gerakan Peregangan 💡", menu)
+        act_str_guide.triggered.connect(mgr.show_stretch_guide)
+        stretch_m.addAction(act_str_guide)
+        stretch_m.addSeparator()
+        cur_str = self.gcfg.get("stretch_minutes", 30)
+        for label, mins in (("Setiap 20 Menit", 20),
+                            ("Setiap 30 Menit (Ideal)", 30),
+                            ("Setiap 45 Menit", 45),
+                            ("Setiap 60 Menit (1 Jam)", 60),
+                            ("Setiap 90 Menit", 90),
+                            ("Matikan (Off)", 0)):
+            act = QAction(label, menu)
+            act.setCheckable(True)
+            act.setChecked(cur_str == mins)
+            act.triggered.connect(lambda _=False, m=mins: mgr.set_stretch(m))
+            stretch_m.addAction(act)
+        scus = QAction("Atur Interval Kustom ⏱…", menu)
+        scus.triggered.connect(mgr.custom_stretch)
+        stretch_m.addAction(scus)
+
+        # 2. Pengingat Minum Air 💧
+        water_m = remm.addMenu("Pengingat Minum Air 💧")
+        act_wat_log = QAction("Catat 1 Gelas Air 🥛 (+250 ml)", menu)
+        act_wat_log.triggered.connect(mgr.log_water_drink)
+        water_m.addAction(act_wat_log)
+        act_wat_now = QAction("Ingatkan Minum Sekarang 💧", menu)
+        act_wat_now.triggered.connect(lambda: mgr.trigger_water(manual=True))
+        water_m.addAction(act_wat_now)
+        act_wat_info = QAction("Status Asupan Air Hari Ini 📊", menu)
+        act_wat_info.triggered.connect(mgr.show_water_info)
+        water_m.addAction(act_wat_info)
+        act_wat_reset = QAction("Reset Hitungan Hari Ini 🔄", menu)
+        act_wat_reset.triggered.connect(mgr.reset_water_tracker)
+        water_m.addAction(act_wat_reset)
+        water_m.addSeparator()
+        cur_wat = self.gcfg.get("water_remind_minutes", 45)
+        for label, mins in (("Ingatkan Setiap 30 Menit", 30),
+                            ("Ingatkan Setiap 45 Menit (Ideal)", 45),
+                            ("Ingatkan Setiap 60 Menit (1 Jam)", 60),
+                            ("Ingatkan Setiap 90 Menit", 90),
+                            ("Matikan (Off)", 0)):
+            act = QAction(label, menu)
+            act.setCheckable(True)
+            act.setChecked(cur_wat == mins)
+            act.triggered.connect(lambda _=False, m=mins: mgr.set_water_reminder(m))
+            water_m.addAction(act)
+        wcus = QAction("Atur Interval Kustom ⏱…", menu)
+        wcus.triggered.connect(mgr.custom_water_reminder)
+        water_m.addAction(wcus)
+
+        # 3. Pengingat Jadwal Agenda 📅
+        sched_m = remm.addMenu("Pengingat Jadwal 📅")
+        act_sch_add = QAction("Tambah Jadwal Agenda ➕", menu)
+        act_sch_add.triggered.connect(mgr.add_schedule)
+        sched_m.addAction(act_sch_add)
+        act_sch_list = QAction("Lihat Daftar Jadwal 📋", menu)
+        act_sch_list.triggered.connect(mgr.show_schedules)
+        sched_m.addAction(act_sch_list)
+        sched_m.addSeparator()
+        act_sch_clr = QAction("Hapus Semua Jadwal 🗑️", menu)
+        act_sch_clr.triggered.connect(mgr.clear_schedules)
+        sched_m.addAction(act_sch_clr)
+
+        # 4. Pengingat Pesan 💬
+        msg_m = remm.addMenu("Pengingat Pesan 💬")
+        act_rem_add = QAction("Buat Pengingat Pesan Baru ➕", menu)
+        act_rem_add.triggered.connect(mgr.add_reminder)
+        msg_m.addAction(act_rem_add)
+        act_rem_list = QAction("Lihat Pesan Pengingat Aktif 📋", menu)
+        act_rem_list.triggered.connect(mgr.show_message_reminders)
+        msg_m.addAction(act_rem_list)
+        act_rem_pin = QAction("Sematkan Catatan di Atas Kepala 📌", menu)
+        act_rem_pin.triggered.connect(mgr.set_pinned)
+        msg_m.addAction(act_rem_pin)
+        msg_m.addSeparator()
+        act_rem_clr = QAction("Hapus Semua Pengingat Pesan 🗑️", menu)
+        act_rem_clr.triggered.connect(mgr.clear_reminders)
+        msg_m.addAction(act_rem_clr)
+
+        # 5. Timer Pomodoro 🍅
+        pomo = remm.addMenu("Timer Pomodoro 🍅")
+        for label, mins, kind in (("Fokus 25 Menit", 25, "focus"),
+                                  ("Fokus 50 Menit", 50, "focus"),
+                                  ("Istirahat 5 Menit", 5, "break")):
             act = QAction(label, menu)
             act.triggered.connect(lambda _=False, m=mins, k=kind:
                                   mgr.start_pomodoro(m, k))
             pomo.addAction(act)
-        pcus = QAction("Custom focus ⏱…", menu)
+        pcus = QAction("Kustom Fokus ⏱…", menu)
         pcus.triggered.connect(lambda _=False: mgr.custom_pomodoro("focus"))
         pomo.addAction(pcus)
-        bcus = QAction("Custom break ⏱…", menu)
+        bcus = QAction("Kustom Istirahat ⏱…", menu)
         bcus.triggered.connect(lambda _=False: mgr.custom_pomodoro("break"))
         pomo.addAction(bcus)
-        for label, f, b in (("Loop 25 / 5", 25, 5), ("Loop 50 / 10", 50, 10)):
+        for label, f, b in (("Loop 25 / 5 Menit", 25, 5), ("Loop 50 / 10 Menit", 50, 10)):
             act = QAction(label, menu)
             act.triggered.connect(lambda _=False, ff=f, bb=b:
                                   mgr.start_pomodoro(ff, "focus", loop=(ff, bb)))
             pomo.addAction(act)
-        stop = QAction("Stop timer", menu)
+        stop = QAction("Hentikan Timer ⏹", menu)
         stop.triggered.connect(mgr.stop_pomodoro)
         pomo.addAction(stop)
 
-        stretch = remm.addMenu("Stretch reminder")
-        for label, mins in (("Every 30 min", 30), ("Every 50 min", 50),
-                            ("Every 90 min", 90), ("Off", 0)):
-            act = QAction(label, menu)
-            act.setCheckable(True)
-            act.setChecked(self.gcfg["stretch_minutes"] == mins)
-            act.triggered.connect(lambda _=False, m=mins: mgr.set_stretch(m))
-            stretch.addAction(act)
-        scus = QAction("Custom interval ⏱…", menu)
-        scus.triggered.connect(mgr.custom_stretch)
-        stretch.addAction(scus)
+        remm.addSeparator()
+        nm = QAction("Beritahu Kucing Namamu… 🏷️", menu)
+        nm.triggered.connect(mgr.set_name)
+        remm.addAction(nm)
 
         mini = menu.addMenu("Minigames 🎮")
         dh = QAction("Duck Hunt 🦆", menu)
@@ -6123,20 +6499,6 @@ class CatWindow(QWidget):
         info = QAction("How to hook up (see README)", menu)
         info.triggered.connect(self.show_agent_help)
         agent.addAction(info)
-
-        msgs = remm.addMenu("Messages")
-        rem = QAction("Set a reminder…", menu)
-        rem.triggered.connect(mgr.add_reminder)
-        msgs.addAction(rem)
-        crem = QAction("Clear reminders", menu)
-        crem.triggered.connect(mgr.clear_reminders)
-        msgs.addAction(crem)
-        pin = QAction("Pin a note above my head…", menu)
-        pin.triggered.connect(mgr.set_pinned)
-        msgs.addAction(pin)
-        nm = QAction("Tell the cat your name…", menu)
-        nm.triggered.connect(mgr.set_name)
-        msgs.addAction(nm)
 
         tst = menu.addMenu("Test animations")
         for label, kind in (("Blink", "blink"),
