@@ -29,6 +29,15 @@ Dibuat untuk **Windows** dan **Linux**. Ringan, open source, tanpa langganan, da
 - 📜 **Paper Unroll** — Scroll mouse Anda dan kucing akan membuka gulungan kertas tisu pixel dengan ujung bergerigi.
 - 🎶 **Rhythmic Head Bop** — Saat mendeteksi lagu/musik, selain mengenakan headphone pixel, kucing ikut mengangguk-angguk ritmis mengikuti irama musik dengan notasi balok `♪ ♫` mengambang.
 - 🥱 **Wakeup Stretch** — Saat bangun dari tidur siang, kucing meregangkan kaki dan punggungnya (*cat yoga stretch*) sambil menguap segar (*"Hoaamm... menggeliat dulu! 🥱🐾"*).
+- 🎪 **Trik Kucing Terlatih (Cat Tricks)** — Perintahkan kucing melakukan aksi akrobatik lucu:
+  * ✋ **High Five** — Kucing mengangkat cakar depan untuk tos bersama Anda (*"High five kak! ✋😸"*).
+  * 🌀 **Guling-guling (Roll Over)** — Kucing berguling manja di desktop (*"Guling-guling~ 🐾🌀"*).
+  * 💫 **Berputar (Spin)** — Kucing berputar lincah seperti tornado mini (*"Spin! Kucing tornado! 🌪️"*).
+  * 💕 **Duduk Cantik (Sit Pretty)** — Pose duduk anggun dan imut bertabur hati merah muda (*"Duduk cantik~ 😽💕"*).
+- 🍤 **Variasi Camilan & Makanan (Snack Variety)** — Beri berbagai pilihan makanan lezat: Ikan segar 🐟, Udang renyah 🍤, Tuna favorit 🐠, Biskuit treat 🍪, hingga Susu hangat 🥛 dengan animasi dan partikel unik.
+- 🎂 **Perayaan Ulang Tahun (Birthday Mode)** — Atur hari ulang tahun kucing Anda (`MM-DD`). Tepat pada harinya (atau dipicu manual), kucing merayakan dengan ledakan konfetti balon warna-warni 🎈🎊.
+- 🌙 **Mode Malam (Night Mode)** — Kucing otomatis beralih ke palet warna malam hari (*moonlit midnight tone*) dan pupil bercahaya lembut setelah pukul 20:00.
+- 💬 **Celoteh Bosan (Idle Chatter)** — Bila didiamkan terlalu lama saat Anda sibuk bekerja, kucing sesekali mencetuskan celoteh lucu menghibur (*"Hmm... ngantuk juga ya~ 😪"*, *"Bored... main yuk! 🧶"*).
 
 ### 2. Rekan Kerja Produktif & Pengingat Kesehatan 🧘‍♂️
 - 🧘‍♂️ **Pengingat Peregangan (Stretch Reminder)** — Menjaga kesehatan ergonomis Anda saat bekerja di depan monitor dengan animasi peregangan kucing lucu. Pilihan interval 20, 30, 45, 60, 90 menit atau kustom, dilengkapi tips panduan peregangan leher, pergelangan tangan, dan mata (metode 20-20-20). Akses instan lewat menu *"Peregangan Sekarang!"*.

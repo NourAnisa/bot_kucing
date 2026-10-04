@@ -211,7 +211,11 @@ GLOBAL_DEFAULTS = {"stretch_minutes": 30, "sleep_seconds": 180,
                    "water_remind_minutes": 45,
                    "water_intake_count": 0,
                    "water_intake_date": "",
-                   "schedules": []}
+                   "schedules": [],
+                   "night_mode": False,
+                   "cat_birthday": "",
+                   "trick_cooldown": 0.0,
+                   "next_idle_phrase": 0.0}
 
 (IDLE, KNEAD, SLEEP, CHASE, DRAG, STRETCH,
  OVERHEAT, SCROLLPLAY, PEEK, THINK, DANCE) = range(11)
@@ -3146,6 +3150,9 @@ class Manager(QObject):
                     except Exception:
                         pass
 
+        # 5. Birthday check (once per day)
+        self.check_cat_birthday()
+
         # agent status
         kind, label = read_agent_status()
         if kind == "working":
@@ -3499,6 +3506,68 @@ class Manager(QObject):
     def play_yarn(self):
         for c in self.cats:
             c.play_yarn()
+
+    def do_trick(self, kind="high_five"):
+        """Trigger a cat trick on all cats."""
+        for c in self.cats:
+            c.do_trick(kind)
+
+    def give_random_snack(self):
+        """Give a random variety snack to all cats."""
+        for c in self.cats:
+            c.give_random_snack()
+
+    def toggle_night_mode(self):
+        """Toggle night mode (auto dark palette after 20:00)."""
+        g = self.cfg["global"]
+        g["night_mode"] = not g.get("night_mode", False)
+        save_config(self.cfg)
+        for c in self.cats:
+            c._night_palette_active = g["night_mode"]
+            c.update()
+        state = "aktif 🌙" if g["night_mode"] else "nonaktif ☀️"
+        self.say_primary(f"Mode malam {state}", 2.5)
+
+    def set_cat_birthday(self):
+        """Set the cat's birthday (MM-DD format) for annual confetti."""
+        from PySide6.QtWidgets import QInputDialog
+        g = self.cfg["global"]
+        cur = g.get("cat_birthday", "")
+        text, ok = QInputDialog.getText(
+            None, "🎂 Ulang Tahun Kucing",
+            "Masukkan tanggal ulang tahun (format MM-DD, misal 03-15):",
+            text=cur)
+        if ok and text:
+            text = text.strip()
+            try:
+                import datetime
+                datetime.datetime.strptime(text, "%m-%d")
+                g["cat_birthday"] = text
+                save_config(self.cfg)
+                self.say_primary(f"Ulang tahun dicatat: {text} 🎂🎉", 3.0)
+            except ValueError:
+                self.say_primary("Format salah! Pakai MM-DD (misal: 03-15) 😿", 3.0)
+
+    def check_cat_birthday(self):
+        """Check if today is the cat's birthday and trigger confetti."""
+        import datetime
+        g = self.cfg["global"]
+        bday = g.get("cat_birthday", "").strip()
+        if not bday:
+            return
+        try:
+            today = datetime.datetime.now().strftime("%m-%d")
+            if today == bday:
+                last = g.get("_bday_last_year", "")
+                cur_year = str(datetime.datetime.now().year)
+                if last != cur_year:
+                    g["_bday_last_year"] = cur_year
+                    save_config(self.cfg)
+                    for c in self.cats:
+                        c.birthday_confetti()
+                    self.celebrate("🎂 HAPPY BIRTHDAY! 🎉🎊")
+        except Exception:
+            pass
 
     # -------------------------------------------------------------- cats ----
     def add_cat(self):
@@ -5928,6 +5997,12 @@ class CatWindow(QWidget):
         self._drag_history = deque(maxlen=8)
         self._swirl_flips = 0
 
+        # cat tricks
+        self.trick_until = 0.0
+        self.trick_kind = ""          # "high_five", "roll_over", "spin", "sit_pretty"
+        self._next_idle_boredom = time.time() + random.uniform(60, 120)
+        self._night_palette_active = False  # currently using night palette
+
         # dragging / wobble
         self.dragging = False
         self.duck_gunner = False        # easter-egg: holding a gun, angry
@@ -6073,6 +6148,15 @@ class CatWindow(QWidget):
         self._sync_float()
 
     def palette(self):
+        if getattr(self, "_night_palette_active", False):
+            pal = {
+                "B": "#2c3445", "S": "#1e2430", "W": "#94a8c8", "K": "#121620",
+                "E": "#c4e6ff", "N": "#82aaff", "M": "#121620", "Z": "#708bb8", "P": "#38bdf8"
+            }
+            eye = self.ccfg.get("eye_color")
+            if eye:
+                pal["P"] = eye
+            return pal
         if self.ccfg.get("custom_body"):
             pal = custom_palette(self.ccfg["custom_body"])
         else:
@@ -6332,12 +6416,29 @@ class CatWindow(QWidget):
         yarn_act = QAction("Main Bola Benang 🧶", menu)
         yarn_act.triggered.connect(lambda: self.play_yarn())
         mini.addAction(yarn_act)
-        fish_act = QAction("Beri Makan Ikan 🐟", menu)
-        fish_act.triggered.connect(lambda: self.give_snack())
+        fish_act = QAction("Beri Makan (Acak) 🍣", menu)
+        fish_act.triggered.connect(lambda: self.give_random_snack())
         mini.addAction(fish_act)
         toss_act = QAction("Lompatan Akrobatik 🤸", menu)
         toss_act.triggered.connect(lambda: self._handle_toss(350, -650))
         mini.addAction(toss_act)
+        mini.addSeparator()
+
+        # 🎪 Cat Tricks submenu
+        tricks_m = mini.addMenu("Trik Kucing 🎪")
+        for trick_label, trick_key in (
+                ("✋ High Five", "high_five"),
+                ("🌀 Guling-guling (Roll Over)", "roll_over"),
+                ("💫 Berputar (Spin)", "spin"),
+                ("💕 Duduk Cantik (Sit Pretty)", "sit_pretty")):
+            ta = QAction(trick_label, menu)
+            ta.triggered.connect(lambda _=False, k=trick_key: self.do_trick(k))
+            tricks_m.addAction(ta)
+
+        # 🎂 Birthday shortcut
+        bday_act = QAction("🎂 Ulang Tahun Sekarang!", menu)
+        bday_act.triggered.connect(lambda: self.birthday_confetti())
+        mini.addAction(bday_act)
 
         beh = menu.addMenu("Behavior")
         # --- checkable toggles first ---
@@ -6392,6 +6493,14 @@ class CatWindow(QWidget):
         auto.setChecked(self.gcfg["auto_peek"])
         auto.triggered.connect(mgr.toggle_auto_peek)
         beh.addAction(auto)
+        night = QAction("🌙 Mode Malam (gelap setelah 20:00)", menu)
+        night.setCheckable(True)
+        night.setChecked(self.gcfg.get("night_mode", False))
+        night.triggered.connect(mgr.toggle_night_mode)
+        beh.addAction(night)
+        bday_set = QAction("🎂 Atur Ulang Tahun Kucing", menu)
+        bday_set.triggered.connect(mgr.set_cat_birthday)
+        beh.addAction(bday_set)
         # --- sub-menus at the bottom ---
         beh.addSeparator()
         sens = beh.addMenu("Wiggle sensitivity")
@@ -6577,6 +6686,24 @@ class CatWindow(QWidget):
         act_tst_yarn = QAction("Main Benang 🧶", menu)
         act_tst_yarn.triggered.connect(lambda: self.play_yarn())
         tst.addAction(act_tst_yarn)
+        act_tst_rnd_snack = QAction("Snack Variasi (Acak) 🍤", menu)
+        act_tst_rnd_snack.triggered.connect(lambda: self.give_random_snack())
+        tst.addAction(act_tst_rnd_snack)
+        act_tst_h5 = QAction("Trik: High Five ✋", menu)
+        act_tst_h5.triggered.connect(lambda: self.do_trick("high_five"))
+        tst.addAction(act_tst_h5)
+        act_tst_roll = QAction("Trik: Roll Over 🌀", menu)
+        act_tst_roll.triggered.connect(lambda: self.do_trick("roll_over"))
+        tst.addAction(act_tst_roll)
+        act_tst_spin = QAction("Trik: Spin 💫", menu)
+        act_tst_spin.triggered.connect(lambda: self.do_trick("spin"))
+        tst.addAction(act_tst_spin)
+        act_tst_sit = QAction("Trik: Sit Pretty 💕", menu)
+        act_tst_sit.triggered.connect(lambda: self.do_trick("sit_pretty"))
+        tst.addAction(act_tst_sit)
+        act_tst_bday = QAction("Ulang Tahun (Confetti) 🎂", menu)
+        act_tst_bday.triggered.connect(lambda: self.birthday_confetti())
+        tst.addAction(act_tst_bday)
 
         hidden = self.gcfg.get("hide_mode", False)
         hid = QAction("Come back out 🫣" if hidden
@@ -6855,6 +6982,54 @@ class CatWindow(QWidget):
             p["x"] += math.sin(time.time() * 3 + p["seed"]) * 0.6
             p["life"] -= 0.016
         self.notes = [p for p in self.notes if p["life"] > 0]
+
+        # --- idle boredom phrases: ucapan acak saat IDLE terlalu lama ---
+        if (self.state == IDLE and self.index == 0
+                and now > getattr(self, "_next_idle_boredom", 0.0)
+                and not self.dragging and not self.peeking
+                and not self.gcfg.get("guard_mode", False)
+                and not getattr(self, "stalking", False)):
+            import random as _rnd
+            _idle_phrases = [
+                "Hmm... ngantuk juga ya~ 😪",
+                "...kak mana ikannya? 🐟",
+                "Bored... main yuk! 🧶",
+                "*menguap perlahan* 🥱",
+                "Kapan kerjanya selesai kak? 🐾",
+                "Aku di sini loh! 👀",
+                "*menggaruk telinga* 😸",
+                "Waktu tidur siang kayaknya... 💤",
+                "Mau digelitik boleh kak? 😹",
+                "Staring at the void... 🌑",
+            ]
+            self.say(_rnd.choice(_idle_phrases), 2.2)
+            self._next_idle_boredom = now + _rnd.uniform(90, 180)
+
+        # --- night mode: ganti ke dark palette setelah jam 20:00 ---
+        if self.gcfg.get("night_mode", False) and self.index == 0:
+            import datetime as _dt
+            _h = _dt.datetime.now().hour
+            _is_night = (_h >= 20 or _h < 6)
+            if _is_night and not getattr(self, "_night_palette_active", False):
+                self._night_palette_active = True
+                self.say("Malam tiba~ 🌙 Mode malam aktif!", 3.0)
+            elif not _is_night and getattr(self, "_night_palette_active", False):
+                self._night_palette_active = False
+
+        # --- trick animation tick: expire + sparkles burst saat selesai ---
+        if getattr(self, "trick_until", 0.0) > 0 and now > self.trick_until:
+            self.trick_until = 0.0
+            r = self.cat_rect()
+            for _ in range(6):
+                import random as _rnd2
+                self.sparkles.append({
+                    "x": r.center().x() + _rnd2.randint(-24, 24),
+                    "y": r.top() + _rnd2.randint(-10, 10),
+                    "vy": 1.3, "life": 1.8,
+                    "seed": _rnd2.random() * 6,
+                    "char": _rnd2.choice(["✨", "⭐", "🌟"]),
+                    "color": "#ffe600"
+                })
 
         # --- drag: follow the cursor from the tick too, so the cat never
         #     falls behind even when mouse events are missed ---
@@ -7734,6 +7909,174 @@ class CatWindow(QWidget):
             "Nyang, aku bangun! ^w^"
         ]), 2.2)
 
+    # ---------------------------------------------------- cat tricks ---------
+    _TRICK_DATA = {
+        "high_five": {
+            "duration": 2.5,
+            "frame": "stretch",
+            "phrases": [
+                "High five kak! ✋😸",
+                "Tos dulu! 🐾✨",
+                "Cakar langit! ✋",
+                "High five~ nyaa! 😽",
+            ],
+            "sparkle_char": "✋",
+            "sparkle_color": "#ffb347",
+        },
+        "roll_over": {
+            "duration": 3.0,
+            "frame": "groom_a",
+            "phrases": [
+                "Guling-guling~ 🐾🌀",
+                "Ngguling dulu kak! 😹",
+                "*rolling* lalala~ 🐱",
+                "Muter-muter kayak bola! 🌀",
+            ],
+            "sparkle_char": "🌀",
+            "sparkle_color": "#80deea",
+        },
+        "spin": {
+            "duration": 2.0,
+            "frame": "run_a",
+            "phrases": [
+                "Spin! 💫😸",
+                "Kucing tornado! 🌪️",
+                "Keliling-keliling~ ✨",
+                "Sepur-sepur! 🐱💨",
+            ],
+            "sparkle_char": "💫",
+            "sparkle_color": "#ffd700",
+        },
+        "sit_pretty": {
+            "duration": 2.5,
+            "frame": "sit_a",
+            "phrases": [
+                "Duduk cantik~ 🐱✨",
+                "Pose imut! 😽💕",
+                "Tata cara kucing elegan! 🎩",
+                "Duduk sempurna kak! 🐾",
+            ],
+            "sparkle_char": "💕",
+            "sparkle_color": "#f48fb1",
+        },
+    }
+
+    def do_trick(self, kind="high_five"):
+        """Perform a cat trick animation with sparkles and speech bubble."""
+        now = time.time()
+        if self.state in (DRAG, PEEK) or now < getattr(self, "trick_until", 0.0):
+            return
+        if self.state == SLEEP:
+            self.wakeup()
+            QTimer.singleShot(500, lambda: self.do_trick(kind))
+            return
+        data = self._TRICK_DATA.get(kind, self._TRICK_DATA["high_five"])
+        dur = data["duration"]
+        self.trick_until = now + dur
+        self.trick_kind = kind
+        self.jump_until = max(self.jump_until, now + 0.7)
+        r = self.cat_rect()
+        for i in range(5):
+            ang = now * 3.0 + i * (6.28 / 5)
+            self.sparkles.append({
+                "x": r.center().x() + random.randint(-20, 20),
+                "y": r.top() + random.randint(-8, 8),
+                "vy": 1.2 + i * 0.15,
+                "life": dur,
+                "seed": random.random() * 6,
+                "char": data["sparkle_char"],
+                "color": data["sparkle_color"],
+            })
+        self.say(random.choice(data["phrases"]), dur)
+        # play meow if available
+        if hasattr(self.mgr, "meow") and self.mgr.meow:
+            try:
+                self.mgr.meow.play()
+            except Exception:
+                pass
+
+    def give_random_snack(self):
+        """Give a random snack — variety of treats instead of always fish."""
+        now = time.time()
+        self.snack_until = now + 3.5
+        self.jump_until = now + 0.8
+        if self.state == SLEEP:
+            self.state = IDLE
+        r = self.cat_rect()
+        snacks = [
+            ("🐟", "#4fc3f7", "ikan", [
+                "Nyam nyam! Enak banget ikannya kak! 🐟💖",
+                "Wah ikan segar! Arigatou kak! 🍣✨",
+                "Ikan terenak sedunia! 🐟🐾",
+            ]),
+            ("🍤", "#ffcc80", "udang", [
+                "Udang segar! Yummy! 🍤✨",
+                "Kriuk kriuk, udangnya renyah! 🍤😸",
+                "Arigatou kak, udangnya enak! 🍤💕",
+            ]),
+            ("🐠", "#ef9a9a", "tuna", [
+                "Tuna favorit kak! ✨🐠",
+                "Wah tuna segar banget! 😸💖",
+                "Nomnom tuna the best! 🐠🐾",
+            ]),
+            ("🍪", "#bcaaa4", "treat", [
+                "Treat! Yay! 🍪✨",
+                "Krispy treats kak! 🍪😹",
+                "Enak banget treatnya! 🍪💕",
+            ]),
+            ("🥛", "#e0e0e0", "susu", [
+                "Nyam susu hangat kak! 🥛💕",
+                "Susu favoritku! 🥛✨",
+                "Makasih susunya kak! 🥛😸",
+            ]),
+        ]
+        emoji, color, name, phrases = random.choice(snacks)
+        for _ in range(5):
+            self.sparkles.append({
+                "x": r.center().x() + random.randint(-22, 22),
+                "y": r.top() + random.randint(-12, 12),
+                "vy": 1.1,
+                "life": 2.2,
+                "seed": random.random() * 6,
+                "char": emoji if random.random() < 0.6 else "✨",
+                "color": color,
+            })
+        self.say(random.choice(phrases), 3.5)
+        self.mgr.celebrate(f"Makan {name.title()}! {emoji}")
+        if hasattr(self.mgr, "meow") and self.mgr.meow:
+            try:
+                self.mgr.meow.play()
+            except Exception:
+                pass
+
+    def birthday_confetti(self):
+        """Shoot birthday confetti + celebration message."""
+        now = time.time()
+        r = self.cat_rect()
+        confetti_chars = ["🎊", "🎉", "✨", "⭐", "🌟", "💫", "🎈"]
+        confetti_colors = ["#ff80ab", "#ea80fc", "#82b1ff",
+                           "#69f0ae", "#ffd740", "#ff6d00"]
+        for _ in range(12):
+            self.sparkles.append({
+                "x": r.center().x() + random.randint(-40, 40),
+                "y": r.top() + random.randint(-20, 5),
+                "vy": random.uniform(0.8, 1.8),
+                "life": random.uniform(2.0, 3.5),
+                "seed": random.random() * 6,
+                "char": random.choice(confetti_chars),
+                "color": random.choice(confetti_colors),
+            })
+        self.jump_until = now + 1.0
+        cat_name = (self.ccfg.get("name") or "").strip()
+        msg = f"Selamat Ulang Tahun {cat_name}! 🎂🎉" if cat_name \
+            else "Selamat Ulang Tahun! 🎂🎉"
+        self.say(msg, 5.0)
+        if hasattr(self.mgr, "meow") and self.mgr.meow:
+            try:
+                self.mgr.meow.play()
+            except Exception:
+                pass
+
     # ------------------------------------------------- window perching ------
     _WIN32 = None
 
@@ -8268,6 +8611,12 @@ class CatWindow(QWidget):
             return ("knead_c", "knead_b", "knead_a", "knead_b")[int(now / 0.12) % 4]
         if getattr(self, "stretch_until", 0.0) > now:
             return "stretch"
+        if getattr(self, "trick_until", 0.0) > now:
+            # map trick kind to an appropriate frame
+            _tframe = {"high_five": "stretch", "roll_over": "groom_a",
+                       "spin": "run_a" if fast else "run_b",
+                       "sit_pretty": "sit_a" if slow else "sit_b"}
+            return _tframe.get(getattr(self, "trick_kind", ""), "stretch")
         if getattr(self, "stalking", False):
             return "sit_b" if slow else "sit_a"
         if self.state == DANCE:
@@ -8303,7 +8652,8 @@ class CatWindow(QWidget):
 
     def _frame_image(self, name, flip, hot=False):
         key = (name, flip, hot, self.ccfg["pattern"], self.ccfg["palette"],
-               self.ccfg.get("custom_body"), self.scale)
+               self.ccfg.get("custom_body"), self.scale,
+               getattr(self, "_night_palette_active", False))
         img = self._frame_cache.get(key)
         if img is None:
             fallback = {"yawn": "blink",
