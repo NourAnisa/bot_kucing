@@ -3177,10 +3177,10 @@ class Manager(QObject):
 
     # ------------------------------------------------------ self updater --
     UPDATE_BASE = ("https://raw.githubusercontent.com/"
-                   "Verisonder/SondeR-Cat/main/")
-    UPDATE_FILES = ["sondercat.py", "sprites.py", "sonder_agent.py",
+                   "NourAnisa/bot_kucing/main/")
+    UPDATE_FILES = ["nekocat.py", "sprites.py",
                     "ANIMATIONS.md", "README.md", "requirements.txt",
-                    "meow.wav", "sondercat_gray.ico",
+                    "meow.wav", "nekocat_gray.ico",
                     "sounds/purr_pet.wav", "sounds/purr_sleep.wav"]
 
     def _fetch(self, name):
@@ -3190,7 +3190,7 @@ class Manager(QObject):
             try:
                 req = urllib.request.Request(
                     self.UPDATE_BASE + name,
-                    headers={"User-Agent": "SondeRcat"})
+                    headers={"User-Agent": "NekoCat"})
                 with urllib.request.urlopen(req, timeout=25) as r:
                     return r.read()
             except urllib.error.HTTPError as e:
@@ -3212,7 +3212,7 @@ class Manager(QObject):
 
     def _remote_version(self):
         import re
-        src = self._fetch("sondercat.py").decode("utf-8")
+        src = self._fetch("nekocat.py").decode("utf-8")
         m = re.search(r'APP_VERSION = "([^"]+)"', src)
         return (m.group(1) if m else None), src
 
@@ -3263,6 +3263,30 @@ class Manager(QObject):
         threading.Thread(target=work, daemon=True).start()
 
     def _work_updates(self, manual, ui):
+            # 1) Mode Standalone Frozen Executable (.exe)
+            if getattr(sys, "frozen", False):
+                import json, urllib.request, webbrowser
+                try:
+                    req = urllib.request.Request(
+                        "https://api.github.com/repos/NourAnisa/bot_kucing/releases/latest",
+                        headers={"User-Agent": "NekoCat-Updater"}
+                    )
+                    with urllib.request.urlopen(req, timeout=15) as resp:
+                        rel_data = json.loads(resp.read().decode("utf-8"))
+                        tag = rel_data.get("tag_name", "").lstrip("v")
+                        rel_url = rel_data.get("html_url", "https://github.com/NourAnisa/bot_kucing/releases/latest")
+                        if tag and self._is_newer_version(tag):
+                            ui(lambda: self.say_primary(f"Versi baru v{tag} tersedia! 🚀 Membuka rilis...", 6))
+                            webbrowser.open(rel_url)
+                        else:
+                            if manual:
+                                ui(lambda: self.say_primary(f"Neko Cat sudah versi terbaru! 😸✨ (v{APP_VERSION})", 4))
+                except Exception as e:
+                    if manual:
+                        ui(lambda: self.say_primary("Gagal menghubungi GitHub 🌐", 4))
+                return
+
+            # 2) Mode Source Python (.py)
             try:
                 ver, remote_main = self._remote_version()
             except Exception as e:
@@ -3277,7 +3301,7 @@ class Manager(QObject):
                 else f"v{APP_VERSION} refresh"
             if not manual:
                 # quiet startup probe: compare the two files that change
-                changed = main_bytes != self._local("sondercat.py")
+                changed = main_bytes != self._local("nekocat.py")
                 if not changed:
                     try:
                         changed = (self._fetch("sprites.py")
@@ -3286,10 +3310,6 @@ class Manager(QObject):
                         return
                 if not changed:
                     return
-                # AUTO-UPDATE ONLY FOR A NEW NUMBERED VERSION (8.9, 9.0, …).
-                # A build-tag-only refresh (same APP_VERSION, new build like
-                # 0712k) is NOT auto-installed — the cat stays quiet about it.
-                # (first run always pulls the latest to start fresh.)
                 is_new_ver = self._is_newer_version(ver)
                 if not (is_new_ver or getattr(self, "first_run", False)):
                     return
@@ -3305,11 +3325,11 @@ class Manager(QObject):
                     else f"auto-updating to {label}… ⤓", 6))
             try:
                 # cheap verdict first: the two files every update touches
-                blobs = {"sondercat.py": main_bytes,
+                blobs = {"nekocat.py": main_bytes,
                          "sprites.py": self._fetch("sprites.py")}
                 if all(blobs[n] == self._local(n) for n in blobs):
                     ui(lambda: self.say_primary(
-                        f"you're up to date! (v{APP_VERSION})", 4))
+                        f"you're up to date! (v{APP_VERSION}) 😸✨", 4))
                     return
                 # something changed: now fetch the rest and diff everything
                 for name in self.UPDATE_FILES:
@@ -3320,7 +3340,7 @@ class Manager(QObject):
                 ui(lambda: self.say_primary(
                     f"found {label}! downloading… ⤓", 8))
                 # validate BEFORE touching anything
-                compile(blobs["sondercat.py"], "sondercat.py", "exec")
+                compile(blobs["nekocat.py"], "nekocat.py", "exec")
                 ns = {"__file__": "sprites.py", "__name__": "sprites"}
                 exec(compile(blobs["sprites.py"], "sprites.py", "exec"), ns)
                 ok, msg = validate_sprites(ns)
@@ -3343,21 +3363,28 @@ class Manager(QObject):
 
     def _restart(self):
         save_config(self.cfg)
-        script = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                              "sondercat.py")
-        try:
-            subprocess.Popen([sys.executable, script],
-                             cwd=os.path.dirname(script))
-        except Exception:
-            self.say_primary("updated! restart me to finish 🐾", 8)
-            return
-        # Make certain this process actually dies. If Qt's quit ever hangs we
-        # would leave an orphaned cat behind, still holding its audio devices
-        # open, and no other process could shut it up. Hard-exit as a backstop.
+        if getattr(sys, "frozen", False):
+            try:
+                subprocess.Popen([sys.executable])
+            except Exception:
+                self.say_primary("updated! restart me to finish 🐾", 8)
+                return
+        else:
+            script = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                  "nekocat.py")
+            if not os.path.exists(script):
+                script = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                      "sondercat.py")
+            try:
+                subprocess.Popen([sys.executable, script],
+                                 cwd=os.path.dirname(script))
+            except Exception:
+                self.say_primary("updated! restart me to finish 🐾", 8)
+                return
         import threading
 
         def _hard_exit():
-            time.sleep(3.0)
+            time.sleep(2.5)
             os._exit(0)
 
         threading.Thread(target=_hard_exit, daemon=True).start()
