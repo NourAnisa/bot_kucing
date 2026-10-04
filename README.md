@@ -10,6 +10,20 @@ Dibuat untuk **Windows** dan **Linux**. Ringan, open source, tanpa langganan, da
 
 ---
 
+## 📥 Download / Unduh Langsung (.exe)
+
+Bagi pengguna Windows, Anda dapat langsung mengunduh versi mandiri (*standalone executable*) tanpa perlu menginstal Python:
+
+| Berkas | Deskripsi | Tautan Unduh Langsung |
+|---|---|---|
+| **`NekoCat.exe`** | Aplikasi mandiri portabel sekali klik *(Portable Executable, ~56 MB)* | [⬇️ **Unduh NekoCat.exe**](https://github.com/NourAnisa/bot_kucing/releases/download/v2.0.0/NekoCat.exe) |
+| **`NekoCat-v2.0-Windows.zip`** | Arsip ZIP lengkap siap ekstrak *(Zip Package)* | [⬇️ **Unduh NekoCat-v2.0-Windows.zip**](https://github.com/NourAnisa/bot_kucing/releases/download/v2.0.0/NekoCat-v2.0-Windows.zip) |
+| **Halaman Rilis** | Informasi changelog & seluruh aset rilis | [🏷️ **GitHub Releases v2.0.0**](https://github.com/NourAnisa/bot_kucing/releases/tag/v2.0.0) |
+
+> 💡 **Petunjuk Penggunaan:** Setelah mengunduh `NekoCat.exe`, cukup klik dua kali berkas tersebut untuk langsung memunculkan Neko Cat di desktop Anda. Tidak memerlukan instalasi Python tambahan!
+
+---
+
 ## 🌟 Fitur Utama
 
 ### 1. Interaksi Alami & Reaksi Menggemaskan (Cat Reactions)

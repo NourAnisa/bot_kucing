@@ -56,6 +56,15 @@ def _fatal(title, details):
         sys.stderr.write(msg)
 
 
+# Base directory helper: works in normal Python and in PyInstaller frozen exe
+APP_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+
+
+def resource_path(rel_path):
+    """Resolve resource path for both development and PyInstaller standalone exe."""
+    return os.path.join(APP_DIR, rel_path)
+
+
 # bundled-libraries mode: the Windows installer ships PySide6/pynput
 # pre-extracted next to the app — no pip involved, ever
 if platform.system() == "Windows":
@@ -830,8 +839,7 @@ def reload_sprites():
 class Meow:
     def __init__(self):
         self.fx = None
-        self.wav = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                "meow.wav")
+        self.wav = resource_path("meow.wav")
         self.use_winsound = (platform.system() == "Windows"
                              and os.path.exists(self.wav))
         if self.use_winsound:
@@ -839,8 +847,7 @@ class Meow:
         try:
             from PySide6.QtMultimedia import QSoundEffect
             from PySide6.QtCore import QUrl
-            path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                "meow.wav")
+            path = resource_path("meow.wav")
             if os.path.exists(path):
                 self.fx = QSoundEffect()
                 self.fx.setSource(QUrl.fromLocalFile(path))
@@ -1007,8 +1014,7 @@ class SoundFX:
         # that dropped the subfolder), the files are re-fetched from the
         # repo in the BACKGROUND so purr heals itself instead of staying
         # silently dead while the synth game sounds still work. ---
-        snd_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                               "sounds")
+        snd_dir = resource_path("sounds")
         missing = []
         for key, fname in (("purr", "purr_pet.wav"),
                            ("purr_sleep", "purr_sleep.wav")):
@@ -9682,9 +9688,9 @@ def main():
     claim_single_instance()      # any older cat stands down (and shuts up)
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
-    ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nekocat_gray.ico")
+    ico = resource_path("nekocat_gray.ico")
     if not os.path.exists(ico):
-        ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sondercat_gray.ico")
+        ico = resource_path("sondercat_gray.ico")
     if os.path.exists(ico):
         app.setWindowIcon(QIcon(ico))
     mgr = Manager(app)
