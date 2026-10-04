@@ -12,15 +12,23 @@ Dibuat untuk **Windows** dan **Linux**. Ringan, open source, tanpa langganan, da
 
 ## 🌟 Fitur Utama
 
-### 1. Interaksi Alami dengan Pengguna
+### 1. Interaksi Alami & Reaksi Menggemaskan (Cat Reactions)
 - 👀 **Eye Follow** — Pupil mata kucing mengikuti pergerakan kursor mouse di mana pun di layar dan berkedip secara natural.
-- 🔴 **Laser Hunt** — Goyangkan kursor ke kiri dan kanan seperti titik laser, kucing akan berlari mengejarnya.
+- 🔴 **Laser Hunt** — Goyangkan kursor ke kiri dan kanan seperti titik laser, kucing akan berlari kencang mengejarnya.
 - 🐾 **Purring & Elusan** — Usap kepala kucing dengan mouse selama beberapa detik untuk memicu animasi hati (*hearts*), ekspresi dengkuran (*"purrr..."*), dan efek suara dengkuran asli.
-- 🍡 **Mochi Drag** — Tarik tubuh kucing dengan mouse dan ia akan bergelantungan lucu meregang lentur seperti mochi.
-- 😾 **Startle** — Gerakan kursor mendadak di dekatnya akan membuatnya melompat kaget.
+- 🍡 **Mochi Drag** — Tarik tubuh kucing dengan mouse dan ia akan bergelantungan lucu meregang lentur seperti kue mochi.
+- 👉 **Nose Boop & Belly Tickle** — Klik ganda pada hidung kucing memicu reaksi kaget bersin lucu (*"Atsyiik! 🤧"*) dengan taburan bintang emas ✨; klik ganda pada perut memicu reaksi gelitik (*"Khehehe geli perutku! 😹"*).
+- 🐟 **Fish Snack Treat** — Beri makan ikan segar lewat menu klik kanan; kucing melompat menangkap ikan, menjilati kaki dengan ekspresi bahagia (*"Nyam nyam! Enak banget ikannya! 🐟💖"*).
+- 🧶 **Yarn Ball Play** — Lempar bola benang untuk dimainkan kucing; kucing mencakar-cakar gembira (*swatting paws*) mengejar bola benang (*"Catch! Kena bola benangnya! 🧶🐾"*).
+- 🤸 **Kinetic Toss & Acrobatic Landing** — Lempar kucing dengan gerakan cepat mouse (*flick drag*); jika dilempar tinggi ke atas kucing membuka parasut pixel darurat (*Emergency Parachute* ☂️), dan jika dilempar mendatar kucing melakukan pendaratan akrobatik 4 kaki (*Cat Righting Reflex* 🤸).
+- 💫 **Dizzy Spin React** — Putar kucing berulang-ulang dengan cepat saat di-drag; kucing menjadi pusing dengan bintang berputar (*orbiting stars* 💫) di atas kepalanya (*"@_@ Aduh pusing..."*).
+- 🎯 **Stealth Stalking & Pounce** — Gerakkan kursor perlahan mengendap-endap di dekat kucing; kucing akan masuk mode mengintai (*butt wiggle*), lalu menerkam kursor secara tiba-tiba (*"HAP! Kena kamu kursor! 🐾😼"*).
+- 😾 **Startle** — Gerakan kursor mendadak dan sangat cepat melintas di dekatnya akan membuatnya melompat kaget.
 - ⌨️ **Keyboard Kneading** — Saat Anda mengetik di keyboard, kucing ikut memijat tombol tuts mini 3D di layar secara realtime.
-- 🔥 **Overheat Mode** — Jika Anda mengetik sangat cepat, kucing akan memerah dan mengeluarkan kepulan uap di atas kepalanya.
-- 📜 **Paper Unroll** — Scroll mouse Anda dan kucing akan membuka gulungan kertas pixel.
+- 🔥 **Overheat Mode** — Jika Anda mengetik sangat cepat (>5.5 ketikan/detik), kucing memerah kepanasan dan mengeluarkan kepulan uap di atas kepalanya.
+- 📜 **Paper Unroll** — Scroll mouse Anda dan kucing akan membuka gulungan kertas tisu pixel dengan ujung bergerigi.
+- 🎶 **Rhythmic Head Bop** — Saat mendeteksi lagu/musik, selain mengenakan headphone pixel, kucing ikut mengangguk-angguk ritmis mengikuti irama musik dengan notasi balok `♪ ♫` mengambang.
+- 🥱 **Wakeup Stretch** — Saat bangun dari tidur siang, kucing meregangkan kaki dan punggungnya (*cat yoga stretch*) sambil menguap segar (*"Hoaamm... menggeliat dulu! 🥱🐾"*).
 
 ### 2. Rekan Kerja Produktif & Pengingat Kesehatan 🧘‍♂️
 - 🧘‍♂️ **Pengingat Peregangan (Stretch Reminder)** — Menjaga kesehatan ergonomis Anda saat bekerja di depan monitor dengan animasi peregangan kucing lucu. Pilihan interval 20, 30, 45, 60, 90 menit atau kustom, dilengkapi tips panduan peregangan leher, pergelangan tangan, dan mata (metode 20-20-20). Akses instan lewat menu *"Peregangan Sekarang!"*.

@@ -3492,6 +3492,14 @@ class Manager(QObject):
             c.jump_until = now + 1.2
         self.say_primary(text, 6)
 
+    def give_snack(self):
+        for c in self.cats:
+            c.give_snack()
+
+    def play_yarn(self):
+        for c in self.cats:
+            c.play_yarn()
+
     # -------------------------------------------------------------- cats ----
     def add_cat(self):
         src = dict(CAT_DEFAULTS)
@@ -5908,6 +5916,18 @@ class CatWindow(QWidget):
         self.next_zzz = 0.0
         self.next_think_bubble = 0.0
 
+        # new interactive reactions
+        self.sparkles = []
+        self.dizzy_until = 0.0
+        self.snack_until = 0.0
+        self.yarn_until = 0.0
+        self.stretch_until = 0.0
+        self.stalking = False
+        self.stalk_start = 0.0
+        self._pounce_cooldown = 0.0
+        self._drag_history = deque(maxlen=8)
+        self._swirl_flips = 0
+
         # dragging / wobble
         self.dragging = False
         self.duck_gunner = False        # easter-egg: holding a gun, angry
@@ -6084,7 +6104,7 @@ class CatWindow(QWidget):
         menu = QMenu(self)
         mgr = self.mgr
 
-        # Aksi Cepat Kesehatan & Pengingat di Paling Atas
+        # Aksi Cepat Kesehatan & Interaksi di Paling Atas
         act_stretch_now = QAction("🧘‍♂️ Peregangan Sekarang!", menu)
         act_stretch_now.triggered.connect(lambda: mgr.trigger_stretch(manual=True))
         menu.addAction(act_stretch_now)
@@ -6092,6 +6112,19 @@ class CatWindow(QWidget):
         act_water_now = QAction("🥛 Catat 1 Gelas Air (+250 ml)", menu)
         act_water_now.triggered.connect(mgr.log_water_drink)
         menu.addAction(act_water_now)
+
+        act_fish = QAction("🐟 Beri Makan Ikan", menu)
+        act_fish.triggered.connect(lambda: self.give_snack())
+        menu.addAction(act_fish)
+
+        act_yarn = QAction("🧶 Main Bola Benang", menu)
+        act_yarn.triggered.connect(lambda: self.play_yarn())
+        menu.addAction(act_yarn)
+
+        act_boop = QAction("👉 Boop Hidung / Gelitik", menu)
+        act_boop.triggered.connect(lambda: self.react_boop(time.time()))
+        menu.addAction(act_boop)
+
         menu.addSeparator()
 
         cust = menu.addMenu("Customization 🎨")
@@ -6285,7 +6318,7 @@ class CatWindow(QWidget):
         nm.triggered.connect(mgr.set_name)
         remm.addAction(nm)
 
-        mini = menu.addMenu("Minigames 🎮")
+        mini = menu.addMenu("Minigames & Mainan 🎮")
         dh = QAction("Duck Hunt 🦆", menu)
         dh.triggered.connect(lambda: mgr.start_minigame("duckhunt"))
         mini.addAction(dh)
@@ -6296,9 +6329,15 @@ class CatWindow(QWidget):
         bj.triggered.connect(lambda: mgr.start_minigame("cards"))
         mini.addAction(bj)
         mini.addSeparator()
-        soon = QAction("more coming soon…", menu)
-        soon.setEnabled(False)
-        mini.addAction(soon)
+        yarn_act = QAction("Main Bola Benang 🧶", menu)
+        yarn_act.triggered.connect(lambda: self.play_yarn())
+        mini.addAction(yarn_act)
+        fish_act = QAction("Beri Makan Ikan 🐟", menu)
+        fish_act.triggered.connect(lambda: self.give_snack())
+        mini.addAction(fish_act)
+        toss_act = QAction("Lompatan Akrobatik 🤸", menu)
+        toss_act.triggered.connect(lambda: self._handle_toss(350, -650))
+        mini.addAction(toss_act)
 
         beh = menu.addMenu("Behavior")
         # --- checkable toggles first ---
@@ -6523,6 +6562,21 @@ class CatWindow(QWidget):
         para = QAction("Parachute drop ☂️", menu)
         para.triggered.connect(lambda _=False: mgr.test_parachute())
         tst.addAction(para)
+        act_tst_boop = QAction("Nose Boop 👉", menu)
+        act_tst_boop.triggered.connect(lambda: self.react_boop(time.time()))
+        tst.addAction(act_tst_boop)
+        act_tst_tickle = QAction("Gelitik Perut 😸", menu)
+        act_tst_tickle.triggered.connect(lambda: self.react_tickle(time.time()))
+        tst.addAction(act_tst_tickle)
+        act_tst_dizzy = QAction("Pusing / Dizzy 💫", menu)
+        act_tst_dizzy.triggered.connect(lambda: self.react_dizzy(time.time()))
+        tst.addAction(act_tst_dizzy)
+        act_tst_snack = QAction("Makan Ikan 🐟", menu)
+        act_tst_snack.triggered.connect(lambda: self.give_snack())
+        tst.addAction(act_tst_snack)
+        act_tst_yarn = QAction("Main Benang 🧶", menu)
+        act_tst_yarn.triggered.connect(lambda: self.play_yarn())
+        tst.addAction(act_tst_yarn)
 
         hidden = self.gcfg.get("hide_mode", False)
         hid = QAction("Come back out 🫣" if hidden
@@ -6780,8 +6834,7 @@ class CatWindow(QWidget):
                 self.sleep_at = now + self.gcfg["sleep_seconds"]
                 if self.state == SLEEP and not self.gcfg.get("force_sleep") \
                         and not self.perch_asleep:
-                    self.state = IDLE
-                    self.say("mrrp?", 1.5)
+                    self.wakeup()
         self.prev_cursor = cur
 
         # --- particles ---
@@ -6792,6 +6845,11 @@ class CatWindow(QWidget):
         self.hearts = [p for p in self.hearts if p["life"] > 0]
         self.zzz = [p for p in self.zzz if p["life"] > 0]
         self.steam = [p for p in self.steam if p["life"] > 0]
+        for p in getattr(self, "sparkles", []):
+            p["y"] -= p["vy"] * dt * 25
+            p["x"] += math.sin(now * 4 + p["seed"]) * 0.8
+            p["life"] -= dt
+        self.sparkles = [p for p in getattr(self, "sparkles", []) if p["life"] > 0]
         for p in self.notes:
             p["y"] -= p["vy"]
             p["x"] += math.sin(time.time() * 3 + p["seed"]) * 0.6
@@ -6947,6 +7005,36 @@ class CatWindow(QWidget):
             self.jump_until = now + 0.7
             self.wobble = 10
             self.say("!!!", 1.2)
+
+        # --- stealth stalking & pounce on slow moving cursor ---
+        if (self.state == IDLE and 60 < d_cur < 170 and 20 < self.cursor_speed < 110
+                and not mgr.guide_active and now > getattr(self, "_pounce_cooldown", 0.0)):
+            if not getattr(self, "stalking", False):
+                self.stalking = True
+                self.stalk_start = now
+                self.wobble = min(self.wobble + 2.5, 6.0)
+            elif now - self.stalk_start > 1.2:
+                self.stalking = False
+                self._pounce_cooldown = now + 15.0
+                self.jump_until = now + 0.8
+                self.wobble = 12.0
+                # Hop closer to the cursor
+                self.move(int(self.x() + (cur.x() - self.x()) * 0.45),
+                          int(self.y() + (cur.y() - self.y()) * 0.45))
+                self._sync_float()
+                self.say(random.choice([
+                    "HAP! Kena kamu kursor! 🐾😼",
+                    "Pounce!! 🎯",
+                    "Tangkap mangsa! 😸✨",
+                    "Gotcha! 🐾"
+                ]), 1.8)
+                if hasattr(self.mgr, "meow") and self.mgr.meow:
+                    try:
+                        self.mgr.meow.play()
+                    except Exception:
+                        pass
+        elif getattr(self, "stalking", False) and (d_cur >= 220 or self.cursor_speed > 220):
+            self.stalking = False
 
         # chase trigger (works from idle, thinking, AND while hidden)
         wiggling = len(self._wig_times) >= flips_req
@@ -7328,9 +7416,7 @@ class CatWindow(QWidget):
                 self._corner_until = 0.0
                 self.next_corner_at = time.time() + random.uniform(120, 300)
                 if self.state == SLEEP:
-                    self.state = IDLE
-                    self.sleep_at = time.time() + self.gcfg["sleep_seconds"]
-                    self.say(random.choice(["mrrp?", "hm? 🐱", "*yawn*"]), 1.5)
+                    self.wakeup()
             if self.peeking:
                 if self.gcfg.get("hide_mode", False):
                     return              # firm hide: only the menu wakes it
@@ -7348,6 +7434,9 @@ class CatWindow(QWidget):
             self._parachute = False       # grabbed mid-air: chute packed away
             self._falling = False
             self.drag_offset = ev.globalPosition().toPoint() - self.pos()
+            self._drag_history.clear()
+            self._drag_history.append((time.time(), ev.globalPosition().toPoint()))
+            self._swirl_flips = 0
             # the cat should hang from its raised paws (top-center of sprite)
             self._drag_target_offset = QPoint(
                 self.width() // 2,
@@ -7360,6 +7449,22 @@ class CatWindow(QWidget):
         elif ev.button() == Qt.RightButton:
             self.build_menu().exec(ev.globalPosition().toPoint())
 
+    def mouseDoubleClickEvent(self, ev):
+        if ev.button() == Qt.LeftButton:
+            now = time.time()
+            head_rect = (sprites.PEEK_HEAD_RECT if self.state == PEEK
+                         else sprites.HEAD_RECT)
+            head = QRect(self.side + head_rect[0] * self.scale,
+                         TOP_MARGIN + head_rect[1] * self.scale,
+                         (head_rect[2] - head_rect[0]) * self.scale,
+                         (head_rect[3] - head_rect[1]) * self.scale)
+            pos = ev.position().toPoint()
+            if head.contains(pos):
+                self.react_boop(now)
+            else:
+                self.react_tickle(now)
+            ev.accept()
+
     def mouseReleaseEvent(self, ev):
         if ev.button() == Qt.LeftButton and self.dragging:
             self.dragging = False
@@ -7368,6 +7473,19 @@ class CatWindow(QWidget):
             if self.state == DRAG:
                 self.state = IDLE
             self._sync_float()
+            # check kinetic toss / flick
+            now = time.time()
+            if len(self._drag_history) >= 2:
+                t0, p0 = self._drag_history[0]
+                t1, p1 = self._drag_history[-1]
+                dt = max(0.016, t1 - t0)
+                if dt < 0.35:
+                    vx = (p1.x() - p0.x()) / dt
+                    vy = (p1.y() - p0.y()) / dt
+                    speed = math.hypot(vx, vy)
+                    if speed > 950 and not self.gcfg.get("guard_mode", False):
+                        self._handle_toss(vx, vy)
+            self._drag_history.clear()
             if self.gcfg.get("guard_mode", False):
                 post = self._guard_post_point()
                 if (abs(self.x() - post.x()) > 40
@@ -7380,14 +7498,20 @@ class CatWindow(QWidget):
 
     def mouseMoveEvent(self, ev):
         gp = ev.globalPosition().toPoint()
+        now = time.time()
         if self.dragging:
             self.move(gp - self.drag_offset)
             self._sync_float()
+            self._drag_history.append((now, gp))
             dx = gp.x() - self._last_drag_x
             if abs(dx) > 3:
                 direction = 1 if dx > 0 else -1
                 if direction != self._last_drag_dir and self._last_drag_dir:
-                    self.wobble = min(self.wobble + 4.5, 16)
+                    self.wobble = min(self.wobble + 4.5, 18)
+                    self._swirl_flips = getattr(self, "_swirl_flips", 0) + 1
+                    if self._swirl_flips > 8 and not self.gcfg.get("guard_mode", False):
+                        self._swirl_flips = 0
+                        self.react_dizzy(now)
                 self._last_drag_dir = direction
             self._last_drag_x = gp.x()
             return
@@ -7399,7 +7523,6 @@ class CatWindow(QWidget):
                          (x1 - x0) * self.scale, (y1 - y0) * self.scale)
             if head.contains(ev.position().toPoint()):
                 self.pet_accum += 1
-                now = time.time()
                 guarding = self.mgr.cfg["global"].get("guard_mode", False)
                 # track a continuous petting session: if it's been a moment
                 # since the last head-wiggle, this is a fresh session
@@ -7445,8 +7568,171 @@ class CatWindow(QWidget):
                     if self.state == SLEEP \
                             and not self.gcfg.get("force_sleep") \
                             and not self.perch_asleep:
-                        self.sleep_at = now + self.gcfg["sleep_seconds"]
-                        self.state = IDLE
+                        self.wakeup()
+
+    # ------------------------------------------------ interactive reactions ---
+    def react_boop(self, now):
+        self.jump_until = max(self.jump_until, now + 0.6)
+        self.wobble = min(self.wobble + 8.0, 16.0)
+        if self.state == SLEEP:
+            self.wakeup()
+        r = self.cat_rect()
+        for _ in range(4):
+            self.sparkles.append({
+                "x": r.center().x() + random.randint(-16, 16),
+                "y": r.top() + random.randint(2, 14),
+                "vy": 1.2,
+                "life": 1.5,
+                "seed": random.random() * 6,
+                "char": "✨",
+                "color": "#ffe600"
+            })
+        self.say(random.choice([
+            "*Atsyiik!* 🤧",
+            "Boop! Nya~ 💕",
+            "Hehe hidungku dipencet! 🐾",
+            "Mroww?! 👀",
+            "Kaget tau kak! 😸",
+            "Boooop! ✨"
+        ]), 1.8)
+        if hasattr(self.mgr, "meow") and self.mgr.meow:
+            try:
+                self.mgr.meow.play()
+            except Exception:
+                pass
+
+    def react_tickle(self, now):
+        self.wobble = min(self.wobble + 12.0, 18.0)
+        if self.state == SLEEP:
+            self.wakeup()
+        r = self.cat_rect()
+        for _ in range(3):
+            self.hearts.append({
+                "x": r.center().x() + random.randint(-16, 16),
+                "y": r.center().y() + random.randint(-8, 8),
+                "vy": 1.1,
+                "life": 1.6,
+                "seed": random.random() * 6
+            })
+        self.say(random.choice([
+            "Khehehe geli perutku! 😹",
+            "Aaa geli kak ampunn~ 🐾",
+            "Nyanggg jangan digelitik! 😻",
+            "Geli banget hihihi! 😸✨",
+            "*rolling around* 🐾"
+        ]), 2.0)
+
+    def react_dizzy(self, now):
+        self.dizzy_until = now + 3.5
+        self.wobble = 16.0
+        self.say("Aduh... kepalaku berputar-putar kak... @ _ @ 💫", 3.0)
+        r = self.cat_rect()
+        for _ in range(4):
+            self.sparkles.append({
+                "x": r.center().x() + random.randint(-20, 20),
+                "y": r.top() - 6,
+                "vy": 0.7,
+                "life": 2.5,
+                "seed": random.random() * 6,
+                "char": "💫",
+                "color": "#ffd700"
+            })
+
+    def give_snack(self):
+        now = time.time()
+        self.snack_until = now + 3.5
+        self.jump_until = now + 0.8
+        if self.state == SLEEP:
+            self.state = IDLE
+        r = self.cat_rect()
+        for _ in range(5):
+            self.sparkles.append({
+                "x": r.center().x() + random.randint(-22, 22),
+                "y": r.top() + random.randint(-12, 12),
+                "vy": 1.1,
+                "life": 2.2,
+                "seed": random.random() * 6,
+                "char": "🐟" if random.random() < 0.6 else "✨",
+                "color": "#4fc3f7"
+            })
+        self.say(random.choice([
+            "Nyam nyam! Enak banget ikannya kak! 🐟💖",
+            "Wah ikan segar! Arigatou kak! 🍣✨",
+            "Nom nom nom... Kenyang dan bahagia! ^w^",
+            "Ikan terenak sedunia! 🐟🐾"
+        ]), 3.5)
+        self.celebrate("Makan Ikan Segar! 🐟")
+        if hasattr(self.mgr, "meow") and self.mgr.meow:
+            try:
+                self.mgr.meow.play()
+            except Exception:
+                pass
+
+    def play_yarn(self):
+        now = time.time()
+        self.yarn_until = now + 4.0
+        self.jump_until = now + 0.8
+        self.wobble = 10.0
+        if self.state == SLEEP:
+            self.state = IDLE
+        r = self.cat_rect()
+        for _ in range(5):
+            self.sparkles.append({
+                "x": r.center().x() + random.randint(-22, 22),
+                "y": r.center().y() + random.randint(-12, 12),
+                "vy": 1.2,
+                "life": 2.2,
+                "seed": random.random() * 6,
+                "char": "🧶" if random.random() < 0.6 else "✨",
+                "color": "#ba68c8"
+            })
+        self.say(random.choice([
+            "Catch! Kena bola benangnya! 🧶🐾",
+            "Seru banget main bola benang! 😸✨",
+            "Hap hap! Cakar kilat menyerang! 🐾",
+            "Jangan kabur bolanya! 🧶"
+        ]), 3.5)
+        self.celebrate("Main Bola Benang! 🧶")
+        if hasattr(self.mgr, "meow") and self.mgr.meow:
+            try:
+                self.mgr.meow.play()
+            except Exception:
+                pass
+
+    def _handle_toss(self, vx, vy):
+        now = time.time()
+        geo = (self.screen() or QGuiApplication.primaryScreen()).availableGeometry()
+        if vy < -550:
+            self._parachute = True
+            self.wobble = 14.0
+            target_x = max(geo.left() + 60, min(geo.right() - self.width() - 60, int(self.x() + vx * 0.35)))
+            target_y = geo.bottom() - self.height() - 10
+            self._glide_to(QPoint(target_x, target_y), speed=220)
+            self.say(random.choice(["Waaaa melayang! ☂️✨", "Emergency parachute deploy! 🪂", "Wheeeee! ☁️"]), 2.2)
+        else:
+            self.jump_until = now + 0.8
+            self.wobble = 15.0
+            target_x = max(geo.left() + 40, min(geo.right() - self.width() - 40, int(self.x() + vx * 0.25)))
+            target_y = geo.bottom() - self.height() - 10
+            self._glide_to(QPoint(target_x, target_y), speed=750)
+            self.say(random.choice([
+                "Lompatan akrobatik! 🤸✨",
+                "Landing sempurna 10/10! 🐾",
+                "Hup! Kaki empat mendarat mulus! 😸"
+            ]), 2.0)
+            self.celebrate("Landing Akrobatik! 🤸")
+
+    def wakeup(self):
+        now = time.time()
+        self.sleep_at = now + self.gcfg["sleep_seconds"]
+        self.stretch_until = now + 1.8
+        self.state = STRETCH
+        self.say(random.choice([
+            "*Hoaamm...* menggeliat dulu! 🥱🐾",
+            "Nyang, segar kembali! ☀️",
+            "Mrrrp? Semangat bekerja kak! 🐾",
+            "Nyang, aku bangun! ^w^"
+        ]), 2.2)
 
     # ------------------------------------------------- window perching ------
     _WIN32 = None
@@ -7974,6 +8260,16 @@ class CatWindow(QWidget):
             if getattr(self, "glide_speed", 1100) <= 600:
                 return "run_a" if int(now / 0.34) % 2 else "run_b"
             return "run_a" if fast else "run_b"
+        if getattr(self, "dizzy_until", 0.0) > now:
+            return "blink"
+        if getattr(self, "snack_until", 0.0) > now:
+            return "groom_a" if fast else "groom_b"
+        if getattr(self, "yarn_until", 0.0) > now:
+            return ("knead_c", "knead_b", "knead_a", "knead_b")[int(now / 0.12) % 4]
+        if getattr(self, "stretch_until", 0.0) > now:
+            return "stretch"
+        if getattr(self, "stalking", False):
+            return "sit_b" if slow else "sit_a"
         if self.state == DANCE:
             return "sit_a" if int(now / 0.24) % 2 else "sit_b"
         if self.state == SLEEP:
@@ -8549,6 +8845,13 @@ class CatWindow(QWidget):
             tw_ = int(r.width() * 0.96)
             tx = r.center().x() - tw_ // 2
             ty = r.top() + jy + (r.height() - th_)
+        elif wearing and self.state in (IDLE, THINK) and self.glide_target is None:
+            # subtle head bop while listening to music
+            ph = abs(math.sin(time.time() * 2 * math.pi * 1.6))
+            th_ = int(r.height() * (0.97 + 0.03 * ph))
+            tw_ = r.width()
+            tx = r.left()
+            ty = r.top() + jy + (r.height() - th_)
         # ⚡ SUPER CAT aura (duck-hunt 15-streak): a big Super-Saiyan-Blue
         # "gas fire" — upward-licking electric-blue flame tongues, white-hot
         # at the base fading to blue at the tips, taller in the middle so the
@@ -8762,6 +9065,28 @@ class CatWindow(QWidget):
             p.setBrush(col)
             rad = s * (0.45 + grow_p * 0.55)
             p.drawEllipse(QPointF(st["x"], st["y"]), rad, rad)
+
+        # orbiting dizzy stars above head
+        if now < getattr(self, "dizzy_until", 0.0):
+            d_rad = 14 * (s / 3.0)
+            cx_d = r.center().x()
+            cy_d = r.top() - 4
+            p.setFont(QFont("Arial", max(8, int(s * 1.5)), QFont.Bold))
+            p.setPen(QColor("#ffd700"))
+            for i in range(3):
+                ang = now * 5.5 + i * (2 * math.pi / 3)
+                sx = cx_d + math.cos(ang) * d_rad
+                sy = cy_d + math.sin(ang) * (d_rad * 0.4)
+                p.drawText(QPointF(sx, sy), "💫")
+
+        # custom sparkles / treats / yarn particles
+        for sp in getattr(self, "sparkles", []):
+            col = QColor(sp.get("color", "#ffcc00"))
+            col.setAlphaF(max(0.0, min(1.0, sp["life"])))
+            p.setPen(col)
+            char = sp.get("char", "✨")
+            p.setFont(QFont("Arial", max(9, int(s * 1.8)), QFont.Bold))
+            p.drawText(QPointF(sp["x"], sp["y"]), char)
 
         # speech bubble (temporary) or pinned note (persistent)
         text, bg, fg = None, QColor(255, 253, 246, 252), QColor("#3a2f26")
