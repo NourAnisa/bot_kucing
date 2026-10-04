@@ -3656,7 +3656,7 @@ class Manager(QObject):
             self.next_stretch = now + mins * 60
         for c in self.cats:
             c._unpeek()
-            c.state = STRETCH
+            c.start_stretch_big(duration=9.0)
         if hasattr(self, "meow") and self.meow:
             try:
                 self.meow.play()
@@ -3668,7 +3668,7 @@ class Manager(QObject):
         call_name = f"kak {user_name}" if user_name else "kak"
         bubble_text = f"Waktunya peregangan sebentar, {call_name}! 🧘‍♀️\n• {tip_title}\n{tip_desc}"
         self.say_primary(bubble_text, 9, "#2e7d32")
-        self.celebrate("Waktunya peregangan! 🧘‍♂️")
+        self.celebrate("Waktunya peregangan! (Membesar) 🧘‍♂️")
 
     def show_stretch_guide(self):
         guide_text = (
@@ -3719,6 +3719,8 @@ class Manager(QObject):
         target = 8
         user_name = g.get("name", "").strip()
         call_name = f"kak {user_name}" if user_name else "kak"
+        for c in self.cats:
+            c.start_drinking(duration=5.5)
         msg = f"Segar! 🥛 {call_name} sudah minum {count}/{target} gelas (~{ml} ml) hari ini! Tetap terhidrasi yaa!"
         self.say_primary(msg, 6, "#1976d2")
         self.celebrate(f"Minum air {count}/{target} gelas! 💧")
@@ -3730,6 +3732,7 @@ class Manager(QObject):
             self.next_water = now + mins * 60
         for c in self.cats:
             c._unpeek()
+            c.start_drinking(duration=8.0)
         if hasattr(self, "meow") and self.meow:
             try:
                 self.meow.play()
@@ -3745,7 +3748,7 @@ class Manager(QObject):
             "Jangan lupa minum air yaa, ginjal dan tubuh berterima kasih untuk hidrasi sehat ini!"
         ]
         chosen_tip = random.choice(tips)
-        text = f"💧 Waktunya Minum Air, {call_name}!\n• {chosen_tip}\n(Klik menu: Catat 1 Gelas Air 🥛)"
+        text = f"Sim, time to drink water, meow! 💧🥛\n• {chosen_tip}\n(Klik menu: Catat 1 Gelas Air 🥛)"
         self.say_primary(text, 9, "#0288d1")
         self.celebrate("Waktunya Minum Air! 🥛")
 
@@ -5991,6 +5994,7 @@ class CatWindow(QWidget):
         self.snack_until = 0.0
         self.yarn_until = 0.0
         self.stretch_until = 0.0
+        self.drink_until = 0.0
         self.stalking = False
         self.stalk_start = 0.0
         self._pounce_cooldown = 0.0
@@ -6189,11 +6193,11 @@ class CatWindow(QWidget):
         mgr = self.mgr
 
         # Aksi Cepat Kesehatan & Interaksi di Paling Atas
-        act_stretch_now = QAction("🧘‍♂️ Peregangan Sekarang!", menu)
+        act_stretch_now = QAction("🧘‍♂️ Peregangan Sekarang! (Membesar)", menu)
         act_stretch_now.triggered.connect(lambda: mgr.trigger_stretch(manual=True))
         menu.addAction(act_stretch_now)
 
-        act_water_now = QAction("🥛 Catat 1 Gelas Air (+250 ml)", menu)
+        act_water_now = QAction("🥛 Minum Air Bersama (+250 ml)", menu)
         act_water_now.triggered.connect(mgr.log_water_drink)
         menu.addAction(act_water_now)
 
@@ -6704,6 +6708,12 @@ class CatWindow(QWidget):
         act_tst_bday = QAction("Ulang Tahun (Confetti) 🎂", menu)
         act_tst_bday.triggered.connect(lambda: self.birthday_confetti())
         tst.addAction(act_tst_bday)
+        act_tst_str_big = QAction("Peregangan Membesar 🧘", menu)
+        act_tst_str_big.triggered.connect(lambda: self.start_stretch_big(9.0))
+        tst.addAction(act_tst_str_big)
+        act_tst_drink = QAction("Minum Air di Mangkuk 🥣💧", menu)
+        act_tst_drink.triggered.connect(lambda: self.start_drinking(7.0))
+        tst.addAction(act_tst_drink)
 
         hidden = self.gcfg.get("hide_mode", False)
         hid = QAction("Come back out 🫣" if hidden
@@ -7270,9 +7280,10 @@ class CatWindow(QWidget):
             self._corner_until = 0.0
             if self.state not in (IDLE,):
                 self.state = IDLE
-        elif now < mgr.stretch_until:
+        elif now < mgr.stretch_until or now < getattr(self, "stretch_until", 0.0):
             self.state = STRETCH
-            pass
+            if self.grow < 1.7:
+                self._set_grow(True)
         elif overheat and not want_peek:
             if self.state != OVERHEAT and now - self.last_overheat_say > 8:
                 self.last_overheat_say = now
@@ -7461,7 +7472,7 @@ class CatWindow(QWidget):
                 self.say(random.choice(
                     ["mrrp! is it over? 👀", "back! 😺", "phew, that's better."
                      ]), 1.8)
-        if self.state != STRETCH and self.grow > 1.0:
+        if self.state != STRETCH and self.grow > 1.0 and now >= getattr(self, "stretch_until", 0.0) and now >= self.mgr.stretch_until:
             self._set_grow(False)
 
         self.wobble *= 0.92
@@ -8077,6 +8088,150 @@ class CatWindow(QWidget):
             except Exception:
                 pass
 
+    def start_stretch_big(self, duration=9.0):
+        """Stretch reminder: cat enlarges (membesar) with squinting eyes & yoga aura."""
+        now = time.time()
+        self.stretch_until = now + duration
+        self.state = STRETCH
+        self._set_grow(True)
+        self.jump_until = now + 0.8
+        r = self.cat_rect()
+        for _ in range(8):
+            self.sparkles.append({
+                "x": r.center().x() + random.randint(-30, 30),
+                "y": r.top() + random.randint(-10, 20),
+                "vy": random.uniform(1.0, 1.8),
+                "life": 2.2,
+                "seed": random.random() * 6,
+                "char": random.choice(["🧘", "✨", "🌱", "⭐", "💚"]),
+                "color": "#4caf50"
+            })
+        if hasattr(self.mgr, "meow") and self.mgr.meow:
+            try:
+                self.mgr.meow.play()
+            except Exception:
+                pass
+
+    def start_drinking(self, duration=7.0):
+        """Drink water animation: water bowl appears with animated licking tongue & splashes."""
+        now = time.time()
+        self.drink_until = now + duration
+        if self.state == SLEEP:
+            self.wakeup()
+        self.jump_until = now + 0.5
+        r = self.cat_rect()
+        for _ in range(7):
+            self.sparkles.append({
+                "x": r.center().x() + random.randint(-20, 20),
+                "y": r.bottom() - 8 + random.randint(-4, 4),
+                "vy": random.uniform(1.2, 2.2),
+                "life": 1.6,
+                "seed": random.random() * 6,
+                "char": random.choice(["💧", "💦", "✨", "🫧"]),
+                "color": "#38bdf8"
+            })
+        user_name = self.gcfg.get("name", "").strip()
+        call_name = f"kak {user_name}" if user_name else "kak"
+        self.say(f"Sim, time to drink water, meow! 💧🥛\nYuk minum air bersama, {call_name}!", duration, "#0288d1")
+        if hasattr(self.mgr, "meow") and self.mgr.meow:
+            try:
+                self.mgr.meow.play()
+            except Exception:
+                pass
+
+    def _draw_stretch_effects(self, p, now, tx, ty, tw_, th_, s):
+        """Draw energizing green aura + squinting > < eyes as in stretch reminder."""
+        p.save()
+        # 1. Soft radiating yoga aura
+        aura_pulse = 0.35 + 0.18 * math.sin(now * 5.0)
+        aura_col = QColor("#4caf50")
+        aura_col.setAlphaF(aura_pulse)
+        p.setPen(QPen(aura_col, max(3, int(s * 1.6))))
+        p.setBrush(Qt.NoBrush)
+        p.drawRoundedRect(QRectF(tx - 3, ty - 3, tw_ + 6, th_ + 6), 14, 14)
+
+        # 2. Adorable squinting > < eyes
+        scale_x = tw_ / float(sprites.GRID_W)
+        scale_y = th_ / float(sprites.GRID_H)
+        lx = tx + int(6.8 * scale_x)
+        ly = ty + int(11.2 * scale_y)
+        rx = tx + int(18.2 * scale_x)
+        ry = ty + int(11.2 * scale_y)
+        ew = max(4, int(2.4 * scale_x))
+        eh = max(3, int(1.8 * scale_y))
+
+        # Squinting strokes with dark outline
+        for off, col in ((1, QColor("#1e150e")), (0, QColor("#ffffff"))):
+            p.setPen(QPen(col, max(2, int(s * 0.55)), Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            # Left eye '>'
+            p.drawLine(lx - ew + off, ly - eh + off, lx + ew + off, ly + off)
+            p.drawLine(lx + ew + off, ly + off, lx - ew + off, ly + eh + off)
+            # Right eye '<'
+            p.drawLine(rx + ew + off, ry - eh + off, rx - ew + off, ry + off)
+            p.drawLine(rx - ew + off, ry + off, rx + ew + off, ry + eh + off)
+        p.restore()
+
+    def _draw_drinking_bowl_and_tongue(self, p, now, r, s):
+        """Draw water bowl with crystal-blue water, ripples, and animated pink tongue."""
+        p.save()
+        p.setRenderHint(QPainter.Antialiasing, False)
+
+        bw = int(s * 15)
+        bh = int(s * 6.5)
+        bx = r.center().x() - bw // 2
+        by = r.bottom() - bh + 1
+
+        # 1. Animated tongue (blep / lapping water)
+        mouth_x = r.center().x()
+        mouth_y = by - 1
+        tongue_w = max(4, int(s * 3.4))
+        lap = (math.sin(now * 13.0) + 1.0) / 2.0
+        tongue_h = int(s * 1.5 + lap * (s * 3.0))
+
+        tongue_rect = QRectF(mouth_x - tongue_w / 2.0, mouth_y - 2, tongue_w, tongue_h + 3)
+        p.setPen(QPen(QColor("#c2185b"), max(1, s // 3)))
+        p.setBrush(QColor("#ff6b81"))
+        p.drawRoundedRect(tongue_rect, tongue_w / 2.0, tongue_w / 2.0)
+        p.setPen(QPen(QColor("#d81b60"), max(1, s // 4)))
+        p.drawLine(int(mouth_x), int(mouth_y), int(mouth_x), int(mouth_y + tongue_h * 0.7))
+
+        # 2. Water bowl (dark ceramic rim with bold white border)
+        bowl_rect = QRectF(bx, by, bw, bh)
+        p.setPen(QPen(QColor("#ffffff"), max(2, int(s * 0.45))))
+        p.setBrush(QColor("#18181b"))
+        p.drawRoundedRect(bowl_rect, 6, 6)
+
+        # 3. Water inside bowl
+        water_inset = max(2, int(s * 0.6))
+        water_rect = QRectF(bx + water_inset, by + int(bh * 0.32),
+                            bw - water_inset * 2, int(bh * 0.62))
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor("#0284c7"))
+        p.drawRoundedRect(water_rect, 4, 4)
+
+        surface_rect = QRectF(bx + water_inset, by + int(bh * 0.32),
+                              bw - water_inset * 2, int(bh * 0.28))
+        p.setBrush(QColor("#38bdf8"))
+        p.drawRoundedRect(surface_rect, 3, 3)
+
+        # 4. Animated surface ripples / shimmer
+        shimmer_off = math.sin(now * 7.0) * (bw * 0.15)
+        p.setPen(QPen(QColor("#e0f2fe"), max(1, int(s * 0.35))))
+        rip_y = int(by + bh * 0.36)
+        rip_x1 = int(bx + bw * 0.25 + shimmer_off)
+        rip_x2 = min(int(bx + bw - water_inset - 2), rip_x1 + int(bw * 0.4))
+        if rip_x1 < rip_x2:
+            p.drawLine(rip_x1, rip_y, rip_x2, rip_y)
+
+        # 5. Droplet splash ring at tongue impact
+        if lap > 0.6:
+            p.setPen(QPen(QColor("#bae6fd"), max(1, int(s * 0.3))))
+            p.setBrush(Qt.NoBrush)
+            r_lap = int((lap - 0.6) * s * 4.0)
+            p.drawEllipse(QPointF(mouth_x, by + int(bh * 0.4)), r_lap + 2, r_lap // 2 + 1)
+
+        p.restore()
+
     # ------------------------------------------------- window perching ------
     _WIN32 = None
 
@@ -8609,6 +8764,8 @@ class CatWindow(QWidget):
             return "groom_a" if fast else "groom_b"
         if getattr(self, "yarn_until", 0.0) > now:
             return ("knead_c", "knead_b", "knead_a", "knead_b")[int(now / 0.12) % 4]
+        if getattr(self, "drink_until", 0.0) > now:
+            return "sit_a" if int(now / 0.22) % 2 else "sit_b"
         if getattr(self, "stretch_until", 0.0) > now:
             return "stretch"
         if getattr(self, "trick_until", 0.0) > now:
@@ -9202,6 +9359,13 @@ class CatWindow(QWidget):
             tw_ = r.width()
             tx = r.left()
             ty = r.top() + jy + (r.height() - th_)
+        elif getattr(self, "drink_until", 0.0) > now:
+            # lapping water motion: head dips slightly toward bowl
+            ph = (math.sin(now * 13.0) + 1.0) / 2.0
+            th_ = int(r.height() * (0.97 + 0.03 * ph))
+            tw_ = r.width()
+            tx = r.left()
+            ty = r.top() + jy + int(ph * s * 0.7)
         # ⚡ SUPER CAT aura (duck-hunt 15-streak): a big Super-Saiyan-Blue
         # "gas fire" — upward-licking electric-blue flame tongues, white-hot
         # at the base fading to blue at the tips, taller in the middle so the
@@ -9273,7 +9437,13 @@ class CatWindow(QWidget):
         # rotate with the wobble tilt exactly like the sprite they sit on.
         if getattr(self, "cards_watching", False):
             self._draw_dealer_props(p, tx, ty, tw_, th_)
+        if self.state == STRETCH:
+            self._draw_stretch_effects(p, now, tx, ty, tw_, th_, s)
         p.restore()
+
+        # 🥣 Water bowl + animated licking tongue (drink animation)
+        if getattr(self, "drink_until", 0.0) > now:
+            self._draw_drinking_bowl_and_tongue(p, now, r, s)
 
         # 🔫 duck-hunt blaster: drawn in screen space, pivoting at the cat's
         # paw and pointing at the cursor (where you're about to shoot).
