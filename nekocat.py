@@ -224,7 +224,8 @@ GLOBAL_DEFAULTS = {"stretch_minutes": 30, "sleep_seconds": 180,
                    "night_mode": False,
                    "cat_birthday": "",
                    "trick_cooldown": 0.0,
-                   "next_idle_phrase": 0.0}
+                   "next_idle_phrase": 0.0,
+                   "antigravity_auto_submit": True}
 
 (IDLE, KNEAD, SLEEP, CHASE, DRAG, STRETCH,
  OVERHEAT, SCROLLPLAY, PEEK, THINK, DANCE) = range(11)
@@ -3038,6 +3039,9 @@ class Manager(QObject):
         self.agent_working = False
         self.agent_label = ""
         self.celebrate_until = 0.0
+        self._submitting_busy = False
+        self._submit_cooldown = 0.0
+        self._next_submit_scan = 0.0
 
         self.cats = []
         for i, ccfg in enumerate(self.cfg["cats"]):
@@ -3160,6 +3164,11 @@ class Manager(QObject):
 
         # 5. Birthday check (once per day)
         self.check_cat_birthday()
+
+        # 6. Antigravity Auto-Submit Scanner (Auto-click Submit modal button)
+        if self.cfg["global"].get("antigravity_auto_submit", True) and now > getattr(self, "_next_submit_scan", 0.0):
+            self._next_submit_scan = now + 1.2
+            self.check_antigravity_submit(now)
 
         # agent status
         kind, label = read_agent_status()
@@ -3603,6 +3612,175 @@ class Manager(QObject):
                     self.celebrate("🎂 HAPPY BIRTHDAY! 🎉🎊")
         except Exception:
             pass
+
+    # ----------------------------------------------- antigravity assistant --
+    def toggle_antigravity_auto_submit(self):
+        g = self.cfg["global"]
+        cur = g.get("antigravity_auto_submit", True)
+        g["antigravity_auto_submit"] = not cur
+        save_config(self.cfg)
+        status = "AKTIF 🐾 (Otomatis klik Submit)" if g["antigravity_auto_submit"] else "NONAKTIF"
+        self.say_primary(f"Antigravity Auto-Submit: {status}", 3.0)
+
+    @staticmethod
+    def _detect_submit_button(img):
+        """Detects the distinct blue 'Submit ↵' button of Antigravity modal dialog."""
+        w, h = img.width(), img.height()
+        if w < 200 or h < 200:
+            return None
+        button_rows = []
+        for y in range(0, h, 4):
+            min_x, max_x, cnt = 99999, -1, 0
+            for x in range(0, w, 2):
+                rgb = img.pixel(x, y)
+                r = (rgb >> 16) & 0xFF
+                g = (rgb >> 8) & 0xFF
+                b = rgb & 0xFF
+                if b > 160 and r < 40 and 75 < g < 155:
+                    cnt += 1
+                    if x < min_x: min_x = x
+                    if x > max_x: max_x = x
+            span = max_x - min_x
+            if 65 <= span <= 140 and cnt >= 15:
+                button_rows.append((y, min_x, max_x))
+                
+        if len(button_rows) < 5:
+            return None
+
+        clusters = []
+        for row in button_rows:
+            y, x1, x2 = row
+            matched = False
+            for c in clusters:
+                last_y, lx1, lx2 = c[-1]
+                if y - last_y <= 8 and abs(x1 - lx1) <= 14 and abs(x2 - lx2) <= 14:
+                    c.append(row)
+                    matched = True
+                    break
+            if not matched:
+                clusters.append([row])
+                
+        for c in clusters:
+            if len(c) >= 5:
+                min_y = c[0][0]
+                max_y = c[-1][0]
+                avg_x1 = int(sum(r[1] for r in c) / len(c))
+                avg_x2 = int(sum(r[2] for r in c) / len(c))
+                btn_w = avg_x2 - avg_x1
+                btn_h = max_y - min_y
+                if 68 <= btn_w <= 135 and 20 <= btn_h <= 55:
+                    return (avg_x1 + btn_w // 2, min_y + btn_h // 2, btn_w, btn_h)
+        return None
+
+    def check_antigravity_submit(self, now):
+        """Scans screen for Antigravity permission modal / Submit button and auto-clicks it."""
+        if getattr(self, "_submitting_busy", False):
+            return
+        if now < getattr(self, "_submit_cooldown", 0.0):
+            return
+        cat = self.primary()
+        if not cat or cat.dragging or self._duck_game is not None:
+            return
+
+        try:
+            scr = QGuiApplication.primaryScreen()
+            if not scr:
+                return
+            pix = scr.grabWindow(0)
+            img = pix.toImage()
+        except Exception:
+            return
+
+        btn = self._detect_submit_button(img)
+        if btn is not None:
+            btn_x, btn_y, btn_w, btn_h = btn
+            self._submit_cooldown = now + 6.0
+            self._trigger_cat_submit(btn_x, btn_y)
+
+    def trigger_antigravity_submit_manual(self):
+        """Manual / webhook trigger for cat auto-submitting Antigravity."""
+        cat = self.primary()
+        if not cat:
+            return
+        try:
+            scr = QGuiApplication.primaryScreen()
+            pix = scr.grabWindow(0)
+            img = pix.toImage()
+            btn = self._detect_submit_button(img)
+        except Exception:
+            btn = None
+        if btn is not None:
+            self._trigger_cat_submit(btn[0], btn[1])
+        else:
+            cur = QCursor.pos()
+            self._trigger_cat_submit(cur.x(), cur.y())
+
+    def _trigger_cat_submit(self, btn_x, btn_y):
+        """Cat runs to the Submit button, pounces, clicks it, emits sparkles, and celebrates."""
+        cat = self.primary()
+        if not cat or getattr(self, "_submitting_busy", False):
+            return
+
+        self._submitting_busy = True
+        orig_home = cat.pos()
+        target_x = btn_x - cat.width() // 2
+        target_y = btn_y - cat.height() + int(cat.scale * 2)
+
+        cat.say("Ada Antigravity! Comnyang klik Submit! 🐾", 1.8)
+        cat.state = CHASE
+        cat._glide_to(QPoint(target_x, target_y), speed=1400)
+
+        def do_stomp():
+            try:
+                cat.jump_until = time.time() + 0.6
+                cat.wobble = 12.0
+
+                for _ in range(8):
+                    cat.sparkles.append({
+                        "x": btn_x + random.randint(-22, 22),
+                        "y": btn_y + random.randint(-14, 14),
+                        "vy": 1.4, "life": 1.8,
+                        "seed": random.random() * 6,
+                        "char": random.choice(["🐾", "✨", "⭐", "💫"]),
+                        "color": "#00d2ff"
+                    })
+
+                if platform.system() == "Windows":
+                    import ctypes
+                    user32 = ctypes.windll.user32
+                    orig_pt = ctypes.wintypes.POINT()
+                    user32.GetCursorPos(ctypes.byref(orig_pt))
+
+                    user32.SetCursorPos(btn_x, btn_y)
+                    time.sleep(0.03)
+                    user32.mouse_event(0x0002, 0, 0, 0, 0)
+                    time.sleep(0.04)
+                    user32.mouse_event(0x0004, 0, 0, 0, 0)
+                    time.sleep(0.03)
+                    user32.keybd_event(0x0D, 0, 0, 0)
+                    time.sleep(0.02)
+                    user32.keybd_event(0x0D, 0, 2, 0)
+
+                    user32.SetCursorPos(orig_pt.x, orig_pt.y)
+
+                if hasattr(self, "_meow") and self._meow:
+                    try:
+                        self._meow.play()
+                    except Exception:
+                        pass
+
+                cat.say("HAP! Sudah Comnyang klik Submit untukmu, kak! 🐾✨", 3.0)
+
+            except Exception:
+                pass
+            finally:
+                def return_home():
+                    self._submitting_busy = False
+                    if cat and not cat.dragging:
+                        cat._glide_to(orig_home, speed=500)
+                QTimer.singleShot(1400, return_home)
+
+        QTimer.singleShot(500, do_stomp)
 
     # -------------------------------------------------------------- cats ----
     def add_cat(self):
@@ -5561,6 +5739,13 @@ class Manager(QObject):
                     self.wfile.write(b'{"error": "text is required"}')
                     return
 
+                elif p in ("/antigravity/submit", "/antigravity/click"):
+                    mgr_self._call_bridge.call.emit(
+                        lambda: mgr_self.trigger_antigravity_submit_manual())
+                    self._send_cors(200)
+                    self.wfile.write(b'{"ok": true, "action": "antigravity_submit"}')
+                    return
+
                 self._send_cors(404)
                 self.wfile.write(b'{"error": "not found"}')
 
@@ -6662,6 +6847,13 @@ class CatWindow(QWidget):
         gm.setChecked(self.gcfg.get("guide_mode", False))
         gm.triggered.connect(mgr.toggle_guide_mode)
         agent.addAction(gm)
+
+        act_ag_submit = QAction("Antigravity Auto-Submit 🐾↵", menu)
+        act_ag_submit.setCheckable(True)
+        act_ag_submit.setChecked(self.gcfg.get("antigravity_auto_submit", True))
+        act_ag_submit.triggered.connect(mgr.toggle_antigravity_auto_submit)
+        agent.addAction(act_ag_submit)
+
         gqm = agent.addMenu("Guide speed ⚡")
         cur_gq = self.gcfg.get("guide_quality", "fast")
         for key, label in (("fast", "Fast — snappy, less precise"),
@@ -6749,6 +6941,9 @@ class CatWindow(QWidget):
         act_tst_drink = QAction("Minum Air di Mangkuk 🥣💧", menu)
         act_tst_drink.triggered.connect(lambda: self.start_drinking(7.0))
         tst.addAction(act_tst_drink)
+        act_tst_ag = QAction("Test Auto-Submit Antigravity 🐾↵", menu)
+        act_tst_ag.triggered.connect(lambda: mgr.trigger_antigravity_submit_manual())
+        tst.addAction(act_tst_ag)
 
         hidden = self.gcfg.get("hide_mode", False)
         hid = QAction("Come back out 🫣" if hidden

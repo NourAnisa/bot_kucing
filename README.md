@@ -80,6 +80,7 @@ Neko Cat dilengkapi integrasi kecerdasan buatan yang sangat tangguh:
   3. `mistral-Nemo-Instruct-2407` *(Mistral Nemo - 128k Context)*
   4. `default` *(LLM7 Default)*
 - **Menu Pemilih Model Instan**: Klik kanan pada kucing ➔ **AI Brain 🧠** ➔ **Pilih Model Router 🔀** untuk berganti model dengan satu klik.
+- 🐾 **Asisten Google Antigravity (Auto-Submit Dialogs)**: Kucing dapat mendeteksi dialog pertanyaan / izin Antigravity di layar secara otomatis. Saat tombol biru `Submit ↵` muncul, Comnyang akan berlari secepat kilat, menerkam tombol, mengeklik Submit + Enter, menaburkan efek partikel pixel `🐾 ✨`, lalu bersorak ceria *"HAP! Sudah Comnyang klik Submit untukmu, kak! 🐾✨"* dan kembali dengan aman ke tempat asalnya. Toggle on/off dapat diakses melalui menu **AI 🤖 ➔ Antigravity Auto-Submit 🐾↵** atau dicoba langsung di **Test animations**.
 
 ### 4. 🎮 Mini Games Desktop
 - 🦆 **Duck Hunt** — Mainkan tembak bebek pixel langsung di desktop Anda dengan musik latar 8-bit retro. Dapatkan 15 tembakan beruntun untuk memicu *Super Saiyan Blue Aura*!
