@@ -3672,8 +3672,100 @@ class Manager(QObject):
                     return (avg_x1 + btn_w // 2, min_y + btn_h // 2, btn_w, btn_h)
         return None
 
+    @staticmethod
+    def _detect_action_required(img):
+        """Detects Antigravity 'Action Required' notification/badge or waiting task icon."""
+        w, h = img.width(), img.height()
+        if w < 100 or h < 50:
+            return None
+
+        # Pass 1: Signature Blue Dot + 'Action Required' text (in tooltip or notification)
+        for y in range(4, h - 10, 2):
+            for x in range(4, w - 100, 2):
+                c = img.pixel(x, y)
+                b = c & 0xFF
+                if b <= 160: continue
+                r = (c >> 16) & 0xFF
+                if r >= 45: continue
+                g = (c >> 8) & 0xFF
+                if not (70 < g < 160): continue
+
+                bw = 0
+                for dx in range(12):
+                    if x + dx < w:
+                        c2 = img.pixel(x + dx, y)
+                        if (c2 & 0xFF) > 160 and ((c2 >> 16) & 0xFF) < 45 and (70 < ((c2 >> 8) & 0xFF) < 160):
+                            bw += 1
+                        else:
+                            break
+                if not (3 <= bw <= 9): continue
+
+                bh = 0
+                for dy in range(12):
+                    if y + dy < h:
+                        c2 = img.pixel(x, y + dy)
+                        if (c2 & 0xFF) > 160 and ((c2 >> 16) & 0xFF) < 45 and (70 < ((c2 >> 8) & 0xFF) < 160):
+                            bh += 1
+                        else:
+                            break
+                if not (3 <= bh <= 9): continue
+
+                txt_cols = 0
+                min_tx, max_tx = 99999, -1
+                for tx in range(x + 6, min(w, x + 115), 2):
+                    col_has_txt = False
+                    for ty in range(max(0, y - 5), min(h, y + 10)):
+                        c3 = img.pixel(tx, ty)
+                        tr, tg, tb = (c3 >> 16) & 0xFF, (c3 >> 8) & 0xFF, c3 & 0xFF
+                        mx = max(tr, tg, tb)
+                        if 60 <= mx <= 230 and abs(tr - tg) < 28 and abs(tg - tb) < 28:
+                            col_has_txt = True
+                            break
+                    if col_has_txt:
+                        txt_cols += 1
+                        if tx < min_tx: min_tx = tx
+                        if tx > max_tx: max_tx = tx
+                span = max_tx - min_tx if max_tx >= min_tx else 0
+                if txt_cols >= 16 and 50 <= span <= 130:
+                    return (x + 35, y + 4)
+
+        # Pass 2: Waiting/Action Required circle-square icon [ 🔘 ] in sidebar
+        for y in range(8, h - 10, 3):
+            for x in range(8, w - 10, 3):
+                c = img.pixel(x, y)
+                val = max((c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF)
+                if val < 160: continue
+
+                center_ok = True
+                for dy in (-1, 0, 1):
+                    for dx in (-1, 0, 1):
+                        c_inner = img.pixel(x + dx, y + dy)
+                        if max((c_inner >> 16) & 0xFF, (c_inner >> 8) & 0xFF, c_inner & 0xFF) < 140:
+                            center_ok = False
+                            break
+                    if not center_ok: break
+                if not center_ok: continue
+
+                gap_dark = True
+                for dx, dy in [(-4, 0), (4, 0), (0, -4), (0, 4)]:
+                    cg = img.pixel(x + dx, y + dy)
+                    if max((cg >> 16) & 0xFF, (cg >> 8) & 0xFF, cg & 0xFF) > 65:
+                        gap_dark = False
+                        break
+                if not gap_dark: continue
+
+                ring_hits = 0
+                for dx, dy in [(-7, 0), (7, 0), (0, -7), (0, 7), (-5, -5), (5, -5), (-5, 5), (5, 5)]:
+                    cr = img.pixel(x + dx, y + dy)
+                    if max((cr >> 16) & 0xFF, (cr >> 8) & 0xFF, cr & 0xFF) > 110:
+                        ring_hits += 1
+                if ring_hits >= 6:
+                    return (x, y)
+
+        return None
+
     def check_antigravity_submit(self, now):
-        """Scans screen for Antigravity permission modal / Submit button and auto-clicks it."""
+        """Scans screen for Antigravity permission modal / Submit button or Action Required and handles them."""
         if getattr(self, "_submitting_busy", False):
             return
         if now < getattr(self, "_submit_cooldown", 0.0):
@@ -3691,11 +3783,21 @@ class Manager(QObject):
         except Exception:
             return
 
+        # 1. First priority: Submit button is already visible!
         btn = self._detect_submit_button(img)
         if btn is not None:
             btn_x, btn_y, btn_w, btn_h = btn
             self._submit_cooldown = now + 6.0
             self._trigger_cat_submit(btn_x, btn_y)
+            return
+
+        # 2. Second priority: Action Required or waiting task is visible!
+        act = self._detect_action_required(img)
+        if act is not None:
+            act_x, act_y = act
+            self._submit_cooldown = now + 6.0
+            self._trigger_cat_action_required(act_x, act_y)
+            return
 
     def trigger_antigravity_submit_manual(self):
         """Manual / webhook trigger for cat auto-submitting Antigravity."""
@@ -3707,22 +3809,111 @@ class Manager(QObject):
             pix = scr.grabWindow(0)
             img = pix.toImage()
             btn = self._detect_submit_button(img)
+            act = self._detect_action_required(img) if btn is None else None
         except Exception:
             btn = None
+            act = None
+
         if btn is not None:
             self._trigger_cat_submit(btn[0], btn[1])
+        elif act is not None:
+            self._trigger_cat_action_required(act[0], act[1])
         else:
             cur = QCursor.pos()
             self._trigger_cat_submit(cur.x(), cur.y())
 
-    def _trigger_cat_submit(self, btn_x, btn_y):
-        """Cat runs to the Submit button, pounces, clicks it, emits sparkles, and celebrates."""
+    def _trigger_cat_action_required(self, act_x, act_y):
+        """Cat runs to Action Required in Antigravity, clicks to open it, then auto-submits."""
         cat = self.primary()
         if not cat or getattr(self, "_submitting_busy", False):
             return
 
         self._submitting_busy = True
         orig_home = cat.pos()
+        target_x = act_x - cat.width() // 2
+        target_y = act_y - cat.height() + int(cat.scale * 2)
+
+        cat.say("Ada Action Required! Comnyang bukakan ya! 🐾", 1.8)
+        cat.state = CHASE
+        cat._glide_to(QPoint(target_x, target_y), speed=1300)
+
+        def do_click_action():
+            try:
+                cat.jump_until = time.time() + 0.4
+                cat.wobble = 8.0
+
+                for _ in range(5):
+                    cat.sparkles.append({
+                        "x": act_x + random.randint(-15, 15),
+                        "y": act_y + random.randint(-10, 10),
+                        "vy": 1.2, "life": 1.5,
+                        "seed": random.random() * 6,
+                        "char": random.choice(["🐾", "✨", "⭐"]),
+                        "color": "#00d2ff"
+                    })
+
+                if platform.system() == "Windows":
+                    import ctypes
+                    user32 = ctypes.windll.user32
+                    orig_pt = ctypes.wintypes.POINT()
+                    user32.GetCursorPos(ctypes.byref(orig_pt))
+
+                    user32.SetCursorPos(act_x, act_y)
+                    time.sleep(0.04)
+                    user32.mouse_event(0x0002, 0, 0, 0, 0)
+                    time.sleep(0.04)
+                    user32.mouse_event(0x0004, 0, 0, 0, 0)
+                    time.sleep(0.03)
+                    user32.SetCursorPos(orig_pt.x, orig_pt.y)
+
+                cat.say("Membuka dialog Submit... 🔍", 1.5)
+
+                def check_opened_submit(attempt=1):
+                    try:
+                        scr = QGuiApplication.primaryScreen()
+                        if scr:
+                            pix = scr.grabWindow(0)
+                            btn = self._detect_submit_button(pix.toImage())
+                            if btn is not None:
+                                self._submitting_busy = False
+                                self._trigger_cat_submit(btn[0], btn[1], orig_home=orig_home)
+                                return
+                    except Exception:
+                        pass
+
+                    if attempt < 3:
+                        QTimer.singleShot(600, lambda: check_opened_submit(attempt + 1))
+                    else:
+                        if platform.system() == "Windows":
+                            import ctypes
+                            user32 = ctypes.windll.user32
+                            user32.keybd_event(0x0D, 0, 0, 0)
+                            time.sleep(0.02)
+                            user32.keybd_event(0x0D, 0, 2, 0)
+                        self._submitting_busy = False
+                        if cat and not cat.dragging:
+                            cat._glide_to(orig_home, speed=500)
+
+                QTimer.singleShot(750, lambda: check_opened_submit(1))
+
+            except Exception:
+                self._submitting_busy = False
+                if cat and not cat.dragging:
+                    cat._glide_to(orig_home, speed=500)
+
+        QTimer.singleShot(450, do_click_action)
+
+    def _trigger_cat_submit(self, btn_x, btn_y, orig_home=None):
+        """Cat runs to the Submit button, pounces, clicks it, emits sparkles, and celebrates."""
+        cat = self.primary()
+        if not cat:
+            return
+        if getattr(self, "_submitting_busy", False) and orig_home is None:
+            return
+
+        self._submitting_busy = True
+        if orig_home is None:
+            orig_home = cat.pos()
         target_x = btn_x - cat.width() // 2
         target_y = btn_y - cat.height() + int(cat.scale * 2)
 
