@@ -186,7 +186,7 @@ AGENT_FILE = os.path.join(os.path.expanduser("~"), ".sondercat_agent")
 PID_PATH = os.path.join(os.path.expanduser("~"), ".sondercat_pid")
 
 TOP_MARGIN = 68
-TICK_MS = 33                    # ~30 fps
+TICK_MS = 20                    # ~50 fps (buttery-smooth, low-latency)
 WIGGLE_SENS = {"high": (3, 12), "medium": (4, 20), "low": (6, 30)}
 
 CAT_DEFAULTS = {"palette": "orange tabby", "pattern": "tabby",
@@ -476,15 +476,17 @@ class InputWatcher:
                 self._native = WinScrollHook(self._native_scroll)
             except Exception:
                 self._native = None
-        # pynput runs AS WELL — belt and braces (double counts are harmless)
+        # Use native low-level scroll hook on Windows to avoid high polling rate mouse lag.
+        # Only fallback to pynput.mouse if native hook is unavailable.
         self._ms = None
-        try:
-            from pynput import mouse
-            self._ms = mouse.Listener(on_scroll=self._on_scroll)
-            self._ms.daemon = True
-            self._ms.start()
-        except Exception:
-            self._ms = None
+        if not self._native:
+            try:
+                from pynput import mouse
+                self._ms = mouse.Listener(on_scroll=self._on_scroll)
+                self._ms.daemon = True
+                self._ms.start()
+            except Exception:
+                self._ms = None
         self.mouse_ok = bool(self._native or self._ms)
 
     def _on_release(self, key):
@@ -627,7 +629,7 @@ class InputWatcher:
         except Exception:
             pass
         try:
-            if self._ms is not None and not self._ms.is_alive():
+            if not self._native and self.mouse_ok and (self._ms is None or not self._ms.is_alive()):
                 from pynput import mouse
                 self._ms = mouse.Listener(on_scroll=self._on_scroll)
                 self._ms.daemon = True
@@ -6956,6 +6958,7 @@ class CatWindow(QWidget):
 
         # --- cursor speed (global), wake from sleep ---
         cur = QCursor.pos()
+        self._cur_pos = cur
         dist_moved = math.hypot(cur.x() - self.prev_cursor.x(),
                                 cur.y() - self.prev_cursor.y())
         self.cursor_speed = 0.7 * self.cursor_speed + 0.3 * (dist_moved / dt)
@@ -7032,7 +7035,6 @@ class CatWindow(QWidget):
                 and not self.dragging and not self.peeking
                 and not self.gcfg.get("guard_mode", False)
                 and not getattr(self, "stalking", False)):
-            import random as _rnd
             _idle_phrases = [
                 "Hmm... ngantuk juga ya~ 😪",
                 "...kak mana ikannya? 🐟",
@@ -7045,13 +7047,13 @@ class CatWindow(QWidget):
                 "Mau digelitik boleh kak? 😹",
                 "Staring at the void... 🌑",
             ]
-            self.say(_rnd.choice(_idle_phrases), 2.2)
-            self._next_idle_boredom = now + _rnd.uniform(90, 180)
+            self.say(random.choice(_idle_phrases), 2.2)
+            self._next_idle_boredom = now + random.uniform(90, 180)
 
-        # --- night mode: ganti ke dark palette setelah jam 20:00 ---
-        if self.gcfg.get("night_mode", False) and self.index == 0:
-            import datetime as _dt
-            _h = _dt.datetime.now().hour
+        # --- night mode: cek berkala (tiap 15 detik) ganti ke dark palette setelah jam 20:00 ---
+        if self.gcfg.get("night_mode", False) and self.index == 0 and now > getattr(self, "_next_night_check", 0.0):
+            self._next_night_check = now + 15.0
+            _h = time.localtime(now).tm_hour
             _is_night = (_h >= 20 or _h < 6)
             if _is_night and not getattr(self, "_night_palette_active", False):
                 self._night_palette_active = True
@@ -7064,13 +7066,12 @@ class CatWindow(QWidget):
             self.trick_until = 0.0
             r = self.cat_rect()
             for _ in range(6):
-                import random as _rnd2
                 self.sparkles.append({
-                    "x": r.center().x() + _rnd2.randint(-24, 24),
-                    "y": r.top() + _rnd2.randint(-10, 10),
+                    "x": r.center().x() + random.randint(-24, 24),
+                    "y": r.top() + random.randint(-10, 10),
                     "vy": 1.3, "life": 1.8,
-                    "seed": _rnd2.random() * 6,
-                    "char": _rnd2.choice(["✨", "⭐", "🌟"]),
+                    "seed": random.random() * 6,
+                    "char": random.choice(["✨", "⭐", "🌟"]),
                     "color": "#ffe600"
                 })
 
@@ -9204,144 +9205,124 @@ class CatWindow(QWidget):
                    and self.mgr.music_mode in ("listen", "dance")
                    and not self.mgr.cfg["global"].get("guard_mode", False)
                    and self.mgr._duck_game is None)
-        if wearing:
-            hp = QPainter(img)
-            dkc = QColor("#2a2a33")
-            ltc = QColor("#7d7d94")
-            whc = QColor("#ffffff")           # matches the cat-body outline
-            # NOTE: the base sprite is never mirrored (facing is shown by
-            # the run tilt), so the headset must not mirror either
-            dcells, lcells = self._headset_cells(name)
-            if face_flip:                      # frame is mirrored → mirror cups
-                W0 = sprites.GRID_W - 1
-                dcells = [(W0 - hx, hy) for (hx, hy) in dcells]
-                lcells = [(W0 - hx, hy) for (hx, hy) in lcells]
-            # white outline ONLY on the small outer edge of each cup (the bit
-            # that sticks out into the background) — never the band. The band
-            # is a short 2-cell-tall arc; the cups are tall (4-5 cell) vertical
-            # runs, so we outline only cells that sit in a tall column.
-            solid = set(dcells) | set(lcells)
-            W, H = sprites.GRID_W, sprites.GRID_H
-            col_h = {}
-            for (hx, hy) in dcells:
-                col_h[hx] = col_h.get(hx, 0) + 1
-            xs = [x for x, _ in dcells]
-            midx = (min(xs) + max(xs)) / 2.0 if xs else W / 2.0
-            halo = set()
-            for (hx, hy) in dcells:
-                if col_h.get(hx, 0) < 4:
-                    continue                 # band cell -> no outline
-                out = -1 if hx < midx else 1
-                if (hx + out, hy) in solid:
-                    continue                 # inner column -> not an edge
-                for nb in ((hx + out, hy),           # outer face
-                           (hx, hy - 1), (hx, hy + 1),        # top/bottom cap
-                           (hx + out, hy - 1), (hx + out, hy + 1)):  # corners
-                    if nb not in solid and 0 <= nb[0] < W and 0 <= nb[1] < H:
-                        halo.add(nb)
-            # no outline in the typing/kneading (side) poses — it caused
-            # rendering trouble there; just draw the cups cleanly
-            if not name.startswith(("type_", "knead_")):
-                for (hx, hy) in halo:
-                    hp.fillRect(hx * s, hy * s, s, s, whc)
-            for (hx, hy) in dcells:
-                hp.fillRect(hx * s, hy * s, s, s, dkc)
-            for (hx, hy) in lcells:
-                hp.fillRect(hx * s, hy * s, s, s, ltc)
-            hp.end()
-
-        # guard mode: tactical helmet on the head + flashlight in paw
-        if self.mgr.cfg["global"].get("guard_mode", False):
-            gp = QPainter(img)
-            self._draw_helmet(gp, name, s)
-            self._draw_flashlight(gp, name, s)
-            gp.end()
-
+        guarding = self.mgr.cfg["global"].get("guard_mode", False)
         eyes = sprites.EYE_CELLS.get(name)
-        if eyes:
-            if face_flip:                      # frame mirrored → mirror eyes
-                W0 = sprites.GRID_W - 1
-                eyes = [(W0 - sprites.EYE_W + 1 - ex, ey) for (ex, ey) in eyes]
-            guarding = self.mgr.cfg["global"].get("guard_mode", False)
-            power = (self.index == 0
-                     and (self.mgr.ai_busy
-                          or self.mgr.guide_active
-                          or (self.mgr._ask_box is not None
-                              and self.mgr._ask_box.isVisible())))
-            if self.state == THINK and not power:
-                offx, offy = -s // 3, -s // 2
-            elif self.state == SCROLLPLAY:
-                offx, offy = -(s * 3) // 4, (s * 3) // 4
-            elif guarding:
-                # patrol gaze: look toward the side the torch points,
-                # with a slow scanning drift
-                left_side = self._guard_side() == 1
-                drift = math.sin(now * 1.7) * (s * 0.3)
-                offx = int((-1 if left_side else 1) * (s * 0.7) + drift)
-                offy = s // 4
-            else:
-                cur = QCursor.pos()
-                c = self.mapToGlobal(self.cat_rect().center())
-                ang = math.atan2(cur.y() - c.y(), cur.x() - c.x())
-                f = min(1.0, self._dist_to_cursor(cur) / 300)
-                offx = int(round(math.cos(ang) * f * (s * 0.75)))
-                offy = int(round(math.sin(ang) * f * (s * 0.75)))
-            pal = (sprites.OVERHEAT_PALETTE if self.state == OVERHEAT
-                   else self.palette())
-            pc = QColor(pal["P"])
-            ew_x, ew_y = sprites.EYE_W * s, sprites.EYE_H * s
-            pw = 2 * s                     # pupil size (px)
-            pp = QPainter(img)
-            if power:
-                # all-seeing mode: glowing blue eyes while the brain works
-                pc = QColor("#3ec8ff")
-                pulse = 0.38 + 0.26 * math.sin(now * 6.0)
-                halo = QColor("#56d9ff")
-                halo.setAlphaF(max(0.0, min(1.0, pulse)))
-                pp.setPen(Qt.NoPen)
-                pp.setBrush(halo)
-                grid = sprites.FRAMES.get(name)
-                tint = QColor("#b8ecff")
-                for (ex, ey) in eyes:
-                    cxp = ex * s + ew_x / 2.0
-                    cyp = ey * s + ew_y / 2.0
-                    pp.drawEllipse(QPointF(cxp, cyp),
-                                   ew_x * 1.15, ew_y * 1.15)
-                if grid:
+
+        if wearing or guarding or eyes:
+            ip = QPainter(img)
+            if wearing:
+                dkc = QColor("#2a2a33")
+                ltc = QColor("#7d7d94")
+                whc = QColor("#ffffff")           # matches the cat-body outline
+                dcells, lcells = self._headset_cells(name)
+                if face_flip:                      # frame is mirrored → mirror cups
                     W0 = sprites.GRID_W - 1
-                    for gy, row in enumerate(grid):
-                        for gx, c in enumerate(row):
-                            if c == "E":
-                                dx = (W0 - gx) if face_flip else gx
-                                pp.fillRect(dx * s, gy * s, s, s, tint)
-            for (ex, ey) in eyes:
-                bx, by = ex * s, ey * s
-                px = max(bx, min(bx + offx + (ew_x - pw) // 2, bx + ew_x - pw))
-                py = max(by, min(by + offy + (ew_y - pw) // 2, by + ew_y - pw))
-                pp.fillRect(px, py, pw, pw, pc)
-                if power:                  # white spark in the pupil core
-                    pp.fillRect(px + pw // 4, py + pw // 4,
-                                max(1, pw // 3), max(1, pw // 3),
-                                QColor("#f2ffff"))
-            if guarding or self.duck_gunner:
-                # ANGRY scowl: thick brow bars sitting ABOVE the eyes, inner
-                # ends dipping toward the nose (a hard \  / shape) without
-                # covering the pupils. Mirror-correct via eye x.
-                brow = QColor("#1e150e")
-                bw = sprites.EYE_W + 2          # a bit wider than the eye
-                xs = [ex for (ex, ey) in eyes]
-                left_ex = min(xs) if xs else 0
+                    dcells = [(W0 - hx, hy) for (hx, hy) in dcells]
+                    lcells = [(W0 - hx, hy) for (hx, hy) in lcells]
+                solid = set(dcells) | set(lcells)
+                W, H = sprites.GRID_W, sprites.GRID_H
+                col_h = {}
+                for (hx, hy) in dcells:
+                    col_h[hx] = col_h.get(hx, 0) + 1
+                xs = [x for x, _ in dcells]
+                midx = (min(xs) + max(xs)) / 2.0 if xs else W / 2.0
+                halo = set()
+                for (hx, hy) in dcells:
+                    if col_h.get(hx, 0) < 4:
+                        continue                 # band cell -> no outline
+                    out = -1 if hx < midx else 1
+                    if (hx + out, hy) in solid:
+                        continue                 # inner column -> not an edge
+                    for nb in ((hx + out, hy),           # outer face
+                               (hx, hy - 1), (hx, hy + 1),        # top/bottom cap
+                               (hx + out, hy - 1), (hx + out, hy + 1)):  # corners
+                        if nb not in solid and 0 <= nb[0] < W and 0 <= nb[1] < H:
+                            halo.add(nb)
+                if not name.startswith(("type_", "knead_")):
+                    for (hx, hy) in halo:
+                        ip.fillRect(hx * s, hy * s, s, s, whc)
+                for (hx, hy) in dcells:
+                    ip.fillRect(hx * s, hy * s, s, s, dkc)
+                for (hx, hy) in lcells:
+                    ip.fillRect(hx * s, hy * s, s, s, ltc)
+
+            if guarding:
+                self._draw_helmet(ip, name, s)
+                self._draw_flashlight(ip, name, s)
+
+            if eyes:
+                if face_flip:                      # frame mirrored → mirror eyes
+                    W0 = sprites.GRID_W - 1
+                    eyes = [(W0 - sprites.EYE_W + 1 - ex, ey) for (ex, ey) in eyes]
+                power = (self.index == 0
+                         and (self.mgr.ai_busy
+                              or self.mgr.guide_active
+                              or (self.mgr._ask_box is not None
+                                  and self.mgr._ask_box.isVisible())))
+                if self.state == THINK and not power:
+                    offx, offy = -s // 3, -s // 2
+                elif self.state == SCROLLPLAY:
+                    offx, offy = -(s * 3) // 4, (s * 3) // 4
+                elif guarding:
+                    left_side = self._guard_side() == 1
+                    drift = math.sin(now * 1.7) * (s * 0.3)
+                    offx = int((-1 if left_side else 1) * (s * 0.7) + drift)
+                    offy = s // 4
+                else:
+                    cur = getattr(self, "_cur_pos", None) or QCursor.pos()
+                    c = self.mapToGlobal(self.cat_rect().center())
+                    ang = math.atan2(cur.y() - c.y(), cur.x() - c.x())
+                    f = min(1.0, self._dist_to_cursor(cur) / 300)
+                    offx = int(round(math.cos(ang) * f * (s * 0.75)))
+                    offy = int(round(math.sin(ang) * f * (s * 0.75)))
+                pal = (sprites.OVERHEAT_PALETTE if self.state == OVERHEAT
+                       else self.palette())
+                pc = QColor(pal["P"])
+                ew_x, ew_y = sprites.EYE_W * s, sprites.EYE_H * s
+                pw = 2 * s                     # pupil size (px)
+                if power:
+                    pc = QColor("#3ec8ff")
+                    pulse = 0.38 + 0.26 * math.sin(now * 6.0)
+                    halo = QColor("#56d9ff")
+                    halo.setAlphaF(max(0.0, min(1.0, pulse)))
+                    ip.setPen(Qt.NoPen)
+                    ip.setBrush(halo)
+                    grid = sprites.FRAMES.get(name)
+                    tint = QColor("#b8ecff")
+                    for (ex, ey) in eyes:
+                        cxp = ex * s + ew_x / 2.0
+                        cyp = ey * s + ew_y / 2.0
+                        ip.drawEllipse(QPointF(cxp, cyp),
+                                       ew_x * 1.15, ew_y * 1.15)
+                    if grid:
+                        W0 = sprites.GRID_W - 1
+                        for gy, row in enumerate(grid):
+                            for gx, c in enumerate(row):
+                                if c == "E":
+                                    dx = (W0 - gx) if face_flip else gx
+                                    ip.fillRect(dx * s, gy * s, s, s, tint)
                 for (ex, ey) in eyes:
-                    is_left_eye = (ex == left_ex)
-                    for k in range(bw):
-                        # outer edge high, inner edge (toward nose) lower
-                        step = k if is_left_eye else (bw - 1 - k)
-                        bx = (ex - 1 + k) * s
-                        # base ~2 cells above the eye so brows sit on the brow
-                        # ridge, not on the eyeball
-                        by = int((ey - 1.9) * s) + step * (s * 2 // 3)
-                        pp.fillRect(bx, by, s, int(s * 1.25), brow)
-            pp.end()
+                    bx, by = ex * s, ey * s
+                    px = max(bx, min(bx + offx + (ew_x - pw) // 2, bx + ew_x - pw))
+                    py = max(by, min(by + offy + (ew_y - pw) // 2, by + ew_y - pw))
+                    ip.fillRect(px, py, pw, pw, pc)
+                    if power:                  # white spark in the pupil core
+                        ip.fillRect(px + pw // 4, py + pw // 4,
+                                    max(1, pw // 3), max(1, pw // 3),
+                                    QColor("#f2ffff"))
+                if guarding or self.duck_gunner:
+                    brow = QColor("#1e150e")
+                    bw = sprites.EYE_W + 2          # a bit wider than the eye
+                    xs = [ex for (ex, ey) in eyes]
+                    left_ex = min(xs) if xs else 0
+                    for (ex, ey) in eyes:
+                        is_left_eye = (ex == left_ex)
+                        for k in range(bw):
+                            step = k if is_left_eye else (bw - 1 - k)
+                            bx = (ex - 1 + k) * s
+                            by = int((ey - 1.9) * s) + step * (s * 2 // 3)
+                            ip.fillRect(bx, by, s, int(s * 1.25), brow)
+            ip.end()
 
         jy = 0
         if now < self.jump_until:
