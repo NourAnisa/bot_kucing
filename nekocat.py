@@ -202,10 +202,10 @@ GLOBAL_DEFAULTS = {"stretch_minutes": 30, "sleep_seconds": 180,
                    "auto_update": True,
                    "dance_music": True, "dance_on_sound": False,
                    "gemini_key": "", "screen_vision": False,
-                   "ai_provider": "gemini",
-                   "router_base_url": "http://localhost:20807/v1",
+                   "ai_provider": "9router",
+                   "router_base_url": "https://agusbyna-bansos-router.hf.space/v1",
                    "router_key": "",
-                   "router_model": "gpt-4o",
+                   "router_model": "fast",
                    "http_server_enabled": True,
                    "http_server_port": 19842,
                    "app_actions_enabled": True,
@@ -3833,7 +3833,8 @@ class Manager(QObject):
         target_x = act_x - cat.width() // 2
         target_y = act_y - cat.height() + int(cat.scale * 2)
 
-        cat.say("Ada Action Required! Comnyang bukakan ya! 🐾", 1.8)
+        cat_name = (cat.ccfg.get("name") or "Aku").strip()
+        cat.say(f"Ada Action Required! {cat_name} bukakan ya! 🐾", 1.8)
         cat.state = CHASE
         cat._glide_to(QPoint(target_x, target_y), speed=1300)
 
@@ -3917,7 +3918,8 @@ class Manager(QObject):
         target_x = btn_x - cat.width() // 2
         target_y = btn_y - cat.height() + int(cat.scale * 2)
 
-        cat.say("Ada Antigravity! Comnyang klik Submit! 🐾", 1.8)
+        cat_name = (cat.ccfg.get("name") or "Aku").strip()
+        cat.say(f"Ada Antigravity! {cat_name} klik Submit! 🐾", 1.8)
         cat.state = CHASE
         cat._glide_to(QPoint(target_x, target_y), speed=1400)
 
@@ -3960,7 +3962,7 @@ class Manager(QObject):
                     except Exception:
                         pass
 
-                cat.say("HAP! Sudah Comnyang klik Submit untukmu, kak! 🐾✨", 3.0)
+                cat.say(f"HAP! Sudah {cat_name} klik Submit untukmu, kak! 🐾✨", 3.0)
 
             except Exception:
                 pass
@@ -5498,20 +5500,20 @@ class Manager(QObject):
         self.say_primary(f"Model diganti ke {model_name}! 🧠", 3)
 
     def configure_9router(self):
-        cur_url = self.cfg["global"].get("router_base_url", "http://localhost:20807/v1")
-        cur_model = self.cfg["global"].get("router_model", "gpt-4o")
+        cur_url = self.cfg["global"].get("router_base_url", "https://agusbyna-bansos-router.hf.space/v1")
+        cur_model = self.cfg["global"].get("router_model", "fast")
         cur_key = self.cfg["global"].get("router_key", "")
 
         url, ok1 = QInputDialog.getText(
-            None, "9Router Base URL",
-            "Enter 9Router or OpenAI-compatible endpoint URL:\n(e.g. http://localhost:20807/v1)",
+            None, "Bansos 9Router Base URL",
+            "Enter 9Router or OpenAI-compatible endpoint URL:\n(e.g. https://agusbyna-bansos-router.hf.space/v1)",
             QLineEdit.Normal, cur_url)
         if not ok1:
             return
 
         model, ok2 = QInputDialog.getText(
             None, "9Router Model Name",
-            "Enter target model name on 9Router:\n(e.g. gpt-4o, claude-3-5-sonnet, deepseek-chat)",
+            "Enter target model name on 9Router:\n(e.g. fast, codestral-latest, mistral-Nemo-Instruct-2407)",
             QLineEdit.Normal, cur_model)
         if not ok2:
             return
@@ -5743,7 +5745,7 @@ class Manager(QObject):
         import urllib.request
         import urllib.error
         import re
-        base_url = self.cfg["global"].get("router_base_url", "http://localhost:20807/v1").rstrip("/")
+        base_url = self.cfg["global"].get("router_base_url", "https://agusbyna-bansos-router.hf.space/v1").rstrip("/")
         key = self.cfg["global"].get("router_key", "").strip()
         primary_model = self.cfg["global"].get("router_model", "fast").strip() or "fast"
 
@@ -5753,8 +5755,10 @@ class Manager(QObject):
             "fast",
             "codestral-latest",
             "mistral-Nemo-Instruct-2407",
+            "DeepSeek-V4-Flash-0731",
+            "GLM-5.3-Flash",
+            "minimax-m2.7",
             "default",
-            "qwen/qwen3.8-27b:free",
         ]
         candidate_models = []
         for m in fallback_pool:
@@ -7011,9 +7015,11 @@ class CatWindow(QWidget):
         cur_rm = self.gcfg.get("router_model", "fast")
         for m_name, m_label in [
             ("fast", "Fast (LLM7 Cepat & Stabil) ⚡"),
+            ("DeepSeek-V4-Flash-0731", "DeepSeek V4 Flash 🚀"),
             ("codestral-latest", "Codestral Latest (Mistral Coding) 💻"),
             ("mistral-Nemo-Instruct-2407", "Mistral Nemo Instruct 🧠"),
-            ("qwen/qwen3.8-27b:free", "Qwen 3.8 27B Free 🌐"),
+            ("GLM-5.3-Flash", "GLM 5.3 Flash ⚡"),
+            ("minimax-m2.7", "MiniMax M2.7 🎯"),
             ("default", "LLM7 Default 🎯"),
         ]:
             m_act = QAction(m_label, menu)

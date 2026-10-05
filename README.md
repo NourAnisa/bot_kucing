@@ -71,14 +71,17 @@ Bagi pengguna Windows, Anda dapat langsung mengunduh versi mandiri (*standalone 
 Neko Cat dilengkapi integrasi kecerdasan buatan yang sangat tangguh:
 - Tekan **Ctrl + Space** di mana saja untuk memunculkan kotak tanya-jawab (*Ask Neko*).
 - **Multi-Model Provider**:
-  * **Bansos Router**: Terhubung ke endpoint gratis OpenAI-compatible (`https://noranisa-bansos.hf.space/v1`).
+  * **Bansos Router**: Terhubung ke endpoint gratis OpenAI-compatible (`https://agusbyna-bansos-router.hf.space/v1`).
   * **Google Gemini API**: Mendukung Gemini API key pribadi.
 - **🔄 Smart Auto-Failover System**:
   Jika model utama mengalami *rate limit* (429) atau *offline* (400), Neko Cat otomatis beralih (*fallback*) secara instan ke model aktif berikutnya:
   1. `fast` *(LLM7 Fast - Ultra Cepat)*
-  2. `codestral-latest` *(Mistral Codestral - Koding & Analisis)*
-  3. `mistral-Nemo-Instruct-2407` *(Mistral Nemo - 128k Context)*
-  4. `default` *(LLM7 Default)*
+  2. `DeepSeek-V4-Flash-0731` *(DeepSeek V4 Flash)*
+  3. `codestral-latest` *(Mistral Codestral - Koding & Analisis)*
+  4. `mistral-Nemo-Instruct-2407` *(Mistral Nemo - 128k Context)*
+  5. `GLM-5.3-Flash` *(GLM 5.3 Flash)*
+  6. `minimax-m2.7` *(MiniMax M2.7)*
+  7. `default` *(LLM7 Default)*
 - **Menu Pemilih Model Instan**: Klik kanan pada kucing ➔ **AI Brain 🧠** ➔ **Pilih Model Router 🔀** untuk berganti model dengan satu klik.
 - 🐾 **Asisten Google Antigravity (Auto-Submit Dialogs)**: Kucing dapat mendeteksi dialog pertanyaan / izin Antigravity di layar secara otomatis. Saat tombol biru `Submit ↵` muncul, Comnyang akan berlari secepat kilat, menerkam tombol, mengeklik Submit + Enter, menaburkan efek partikel pixel `🐾 ✨`, lalu bersorak ceria *"HAP! Sudah Comnyang klik Submit untukmu, kak! 🐾✨"* dan kembali dengan aman ke tempat asalnya. Toggle on/off dapat diakses melalui menu **AI 🤖 ➔ Antigravity Auto-Submit 🐾↵** atau dicoba langsung di **Test animations**.
 
