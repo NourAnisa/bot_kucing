@@ -3167,7 +3167,7 @@ class Manager(QObject):
 
         # 6. Antigravity Auto-Submit Scanner (Auto-click Submit modal button)
         if self.cfg["global"].get("antigravity_auto_submit", True) and now > getattr(self, "_next_submit_scan", 0.0):
-            self._next_submit_scan = now + 1.2
+            self._next_submit_scan = now + 2.5
             self.check_antigravity_submit(now)
 
         # agent status
@@ -3673,105 +3673,80 @@ class Manager(QObject):
         return None
 
     @staticmethod
-    def _detect_action_required(img):
-        """Detects Antigravity 'Action Required' notification/badge or waiting task icon."""
-        w, h = img.width(), img.height()
-        if w < 100 or h < 50:
+    def _detect_antigravity_fast(img):
+        """Ultra-fast (1-2ms) vectorized screen detector for Antigravity Submit button & Action Required."""
+        try:
+            import numpy as np
+            w, h = img.width(), img.height()
+            if w < 100 or h < 50:
+                return None
+
+            fmt_img = img.convertToFormat(QImage.Format_RGB888)
+            arr = np.frombuffer(fmt_img.bits(), dtype=np.uint8).reshape((h, w, 3))
+
+            # Fast subsample step 2 for extreme speed (~1ms check)
+            r = arr[::2, ::2, 0]
+            g = arr[::2, ::2, 1]
+            b = arr[::2, ::2, 2]
+            blue_mask = (b > 160) & (r < 40) & (g > 75) & (g < 155)
+            hits = int(np.count_nonzero(blue_mask))
+            if hits < 5:
+                # Zero Antigravity blue elements on screen! Instant exit, 0% CPU!
+                return None
+
+            ys, xs = np.where(blue_mask)
+            xs = xs * 2
+            ys = ys * 2
+
+            # 1. Check for Submit button (width 68..135, height 20..55)
+            if hits >= 40:
+                unique_y = np.unique(ys)
+                valid_rows = []
+                for uy in unique_y[::2]:
+                    row_xs = xs[ys == uy]
+                    if len(row_xs) >= 12:
+                        min_x = int(np.min(row_xs))
+                        max_x = int(np.max(row_xs))
+                        span = max_x - min_x
+                        if 65 <= span <= 140:
+                            valid_rows.append((uy, min_x, max_x))
+                if len(valid_rows) >= 5:
+                    min_y = valid_rows[0][0]
+                    max_y = valid_rows[-1][0]
+                    avg_x1 = int(np.mean([row[1] for row in valid_rows]))
+                    avg_x2 = int(np.mean([row[2] for row in valid_rows]))
+                    btn_w = avg_x2 - avg_x1
+                    btn_h = max_y - min_y
+                    if 68 <= btn_w <= 135 and 20 <= btn_h <= 55:
+                        return ('submit', avg_x1 + btn_w // 2, min_y + btn_h // 2, btn_w, btn_h)
+
+            # 2. Check for Action Required badge (distinctive blue dot + text to the right)
+            if hits < 300:
+                for uy in np.unique(ys):
+                    row_xs = xs[ys == uy]
+                    if 1 <= len(row_xs) <= 6:
+                        cx = int(row_xs[0])
+                        cy = int(uy)
+                        if cx + 115 < w and 0 <= cy - 6 and cy + 8 < h:
+                            txt_sub = arr[cy - 6 : cy + 8, cx + 8 : cx + 115]
+                            txt_mask = (txt_sub.max(axis=2) >= 65) & (txt_sub.max(axis=2) <= 220)
+                            col_has = txt_mask.any(axis=0)
+                            active_cols = np.where(col_has)[0]
+                            if len(active_cols) >= 20 and (active_cols[-1] - active_cols[0]) >= 50:
+                                return ('action_required', cx + 35, cy, 30, 15)
+
+            return None
+        except Exception:
             return None
 
-        # Pass 1: Signature Blue Dot + 'Action Required' text (in tooltip or notification)
-        for y in range(4, h - 10, 2):
-            for x in range(4, w - 100, 2):
-                c = img.pixel(x, y)
-                b = c & 0xFF
-                if b <= 160: continue
-                r = (c >> 16) & 0xFF
-                if r >= 45: continue
-                g = (c >> 8) & 0xFF
-                if not (70 < g < 160): continue
-
-                bw = 0
-                for dx in range(12):
-                    if x + dx < w:
-                        c2 = img.pixel(x + dx, y)
-                        if (c2 & 0xFF) > 160 and ((c2 >> 16) & 0xFF) < 45 and (70 < ((c2 >> 8) & 0xFF) < 160):
-                            bw += 1
-                        else:
-                            break
-                if not (3 <= bw <= 9): continue
-
-                bh = 0
-                for dy in range(12):
-                    if y + dy < h:
-                        c2 = img.pixel(x, y + dy)
-                        if (c2 & 0xFF) > 160 and ((c2 >> 16) & 0xFF) < 45 and (70 < ((c2 >> 8) & 0xFF) < 160):
-                            bh += 1
-                        else:
-                            break
-                if not (3 <= bh <= 9): continue
-
-                txt_cols = 0
-                min_tx, max_tx = 99999, -1
-                for tx in range(x + 6, min(w, x + 115), 2):
-                    col_has_txt = False
-                    for ty in range(max(0, y - 5), min(h, y + 10)):
-                        c3 = img.pixel(tx, ty)
-                        tr, tg, tb = (c3 >> 16) & 0xFF, (c3 >> 8) & 0xFF, c3 & 0xFF
-                        mx = max(tr, tg, tb)
-                        if 60 <= mx <= 230 and abs(tr - tg) < 28 and abs(tg - tb) < 28:
-                            col_has_txt = True
-                            break
-                    if col_has_txt:
-                        txt_cols += 1
-                        if tx < min_tx: min_tx = tx
-                        if tx > max_tx: max_tx = tx
-                span = max_tx - min_tx if max_tx >= min_tx else 0
-                if txt_cols >= 16 and 50 <= span <= 130:
-                    return (x + 35, y + 4)
-
-        # Pass 2: Waiting/Action Required circle-square icon [ 🔘 ] in sidebar
-        for y in range(8, h - 10, 3):
-            for x in range(8, w - 10, 3):
-                c = img.pixel(x, y)
-                val = max((c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF)
-                if val < 160: continue
-
-                center_ok = True
-                for dy in (-1, 0, 1):
-                    for dx in (-1, 0, 1):
-                        c_inner = img.pixel(x + dx, y + dy)
-                        if max((c_inner >> 16) & 0xFF, (c_inner >> 8) & 0xFF, c_inner & 0xFF) < 140:
-                            center_ok = False
-                            break
-                    if not center_ok: break
-                if not center_ok: continue
-
-                gap_dark = True
-                for dx, dy in [(-4, 0), (4, 0), (0, -4), (0, 4)]:
-                    cg = img.pixel(x + dx, y + dy)
-                    if max((cg >> 16) & 0xFF, (cg >> 8) & 0xFF, cg & 0xFF) > 65:
-                        gap_dark = False
-                        break
-                if not gap_dark: continue
-
-                ring_hits = 0
-                for dx, dy in [(-7, 0), (7, 0), (0, -7), (0, 7), (-5, -5), (5, -5), (-5, 5), (5, 5)]:
-                    cr = img.pixel(x + dx, y + dy)
-                    if max((cr >> 16) & 0xFF, (cr >> 8) & 0xFF, cr & 0xFF) > 110:
-                        ring_hits += 1
-                if ring_hits >= 6:
-                    return (x, y)
-
-        return None
-
     def check_antigravity_submit(self, now):
-        """Scans screen for Antigravity permission modal / Submit button or Action Required and handles them."""
+        """Scans screen for Antigravity permission modal / Submit button or Action Required with zero lag."""
         if getattr(self, "_submitting_busy", False):
             return
         if now < getattr(self, "_submit_cooldown", 0.0):
             return
         cat = self.primary()
-        if not cat or cat.dragging or self._duck_game is not None:
+        if not cat or cat.dragging or getattr(cat, "rps_watching", False) or self._duck_game is not None:
             return
 
         try:
@@ -3783,21 +3758,19 @@ class Manager(QObject):
         except Exception:
             return
 
-        # 1. First priority: Submit button is already visible!
-        btn = self._detect_submit_button(img)
-        if btn is not None:
-            btn_x, btn_y, btn_w, btn_h = btn
-            self._submit_cooldown = now + 6.0
-            self._trigger_cat_submit(btn_x, btn_y)
+        detected = self._detect_antigravity_fast(img)
+        if not detected:
             return
 
-        # 2. Second priority: Action Required or waiting task is visible!
-        act = self._detect_action_required(img)
-        if act is not None:
-            act_x, act_y = act
+        kind = detected[0]
+        if kind == 'submit':
+            _, btn_x, btn_y, btn_w, btn_h = detected
+            self._submit_cooldown = now + 6.0
+            self._trigger_cat_submit(btn_x, btn_y)
+        elif kind == 'action_required':
+            _, act_x, act_y, _, _ = detected
             self._submit_cooldown = now + 6.0
             self._trigger_cat_action_required(act_x, act_y)
-            return
 
     def trigger_antigravity_submit_manual(self):
         """Manual / webhook trigger for cat auto-submitting Antigravity."""
@@ -3807,17 +3780,15 @@ class Manager(QObject):
         try:
             scr = QGuiApplication.primaryScreen()
             pix = scr.grabWindow(0)
-            img = pix.toImage()
-            btn = self._detect_submit_button(img)
-            act = self._detect_action_required(img) if btn is None else None
+            detected = self._detect_antigravity_fast(pix.toImage())
         except Exception:
-            btn = None
-            act = None
+            detected = None
 
-        if btn is not None:
-            self._trigger_cat_submit(btn[0], btn[1])
-        elif act is not None:
-            self._trigger_cat_action_required(act[0], act[1])
+        if detected:
+            if detected[0] == 'submit':
+                self._trigger_cat_submit(detected[1], detected[2])
+            elif detected[0] == 'action_required':
+                self._trigger_cat_action_required(detected[1], detected[2])
         else:
             cur = QCursor.pos()
             self._trigger_cat_submit(cur.x(), cur.y())
@@ -3856,6 +3827,16 @@ class Manager(QObject):
                 if platform.system() == "Windows":
                     import ctypes
                     user32 = ctypes.windll.user32
+
+                    # Double check: ensure target is NOT a plain white window
+                    scr = QGuiApplication.primaryScreen()
+                    if scr:
+                        cur_img = scr.grabWindow(0).toImage()
+                        if 0 <= act_x < cur_img.width() and 0 <= act_y < cur_img.height():
+                            c = cur_img.pixel(act_x, act_y)
+                            if ((c >> 16) & 0xFF) > 190 and ((c >> 8) & 0xFF) > 190 and (c & 0xFF) > 190:
+                                return  # Safe abort!
+
                     orig_pt = ctypes.wintypes.POINT()
                     user32.GetCursorPos(ctypes.byref(orig_pt))
 
@@ -3873,11 +3854,10 @@ class Manager(QObject):
                     try:
                         scr = QGuiApplication.primaryScreen()
                         if scr:
-                            pix = scr.grabWindow(0)
-                            btn = self._detect_submit_button(pix.toImage())
-                            if btn is not None:
+                            det = self._detect_antigravity_fast(scr.grabWindow(0).toImage())
+                            if det and det[0] == 'submit':
                                 self._submitting_busy = False
-                                self._trigger_cat_submit(btn[0], btn[1], orig_home=orig_home)
+                                self._trigger_cat_submit(det[1], det[2], orig_home=orig_home)
                                 return
                     except Exception:
                         pass
@@ -3885,12 +3865,6 @@ class Manager(QObject):
                     if attempt < 3:
                         QTimer.singleShot(600, lambda: check_opened_submit(attempt + 1))
                     else:
-                        if platform.system() == "Windows":
-                            import ctypes
-                            user32 = ctypes.windll.user32
-                            user32.keybd_event(0x0D, 0, 0, 0)
-                            time.sleep(0.02)
-                            user32.keybd_event(0x0D, 0, 2, 0)
                         self._submitting_busy = False
                         if cat and not cat.dragging:
                             cat._glide_to(orig_home, speed=500)
@@ -3941,6 +3915,19 @@ class Manager(QObject):
                 if platform.system() == "Windows":
                     import ctypes
                     user32 = ctypes.windll.user32
+
+                    # Double check: ensure the button is STILL Antigravity blue right now
+                    scr = QGuiApplication.primaryScreen()
+                    if scr:
+                        cur_img = scr.grabWindow(0).toImage()
+                        if 0 <= btn_x < cur_img.width() and 0 <= btn_y < cur_img.height():
+                            c = cur_img.pixel(btn_x, btn_y)
+                            cb = c & 0xFF
+                            cr = (c >> 16) & 0xFF
+                            cg = (c >> 8) & 0xFF
+                            if not (cb > 140 and cr < 60 and 65 < cg < 170):
+                                return  # Button disappeared or app changed! Safe abort!
+
                     orig_pt = ctypes.wintypes.POINT()
                     user32.GetCursorPos(ctypes.byref(orig_pt))
 
