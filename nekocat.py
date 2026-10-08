@@ -3681,14 +3681,15 @@ class Manager(QObject):
             if w < 100 or h < 50:
                 return None
 
-            fmt_img = img.convertToFormat(QImage.Format_RGB888)
-            arr = np.frombuffer(fmt_img.bits(), dtype=np.uint8).reshape((h, w, 3))
+            fmt_img = img.convertToFormat(QImage.Format_RGBA8888)
+            arr = np.frombuffer(fmt_img.bits(), dtype=np.uint8).reshape((h, w, 4))
 
             # Fast subsample step 2 for extreme speed (~1ms check)
             r = arr[::2, ::2, 0]
             g = arr[::2, ::2, 1]
             b = arr[::2, ::2, 2]
-            blue_mask = (b > 160) & (r < 40) & (g > 75) & (g < 155)
+            # VS Code / Antigravity Blue #007acc
+            blue_mask = (b > 150) & (r < 55) & (g > 70) & (g < 165)
             hits = int(np.count_nonzero(blue_mask))
             if hits < 5:
                 # Zero Antigravity blue elements on screen! Instant exit, 0% CPU!
@@ -3698,40 +3699,41 @@ class Manager(QObject):
             xs = xs * 2
             ys = ys * 2
 
-            # 1. Check for Submit button (width 68..135, height 20..55)
-            if hits >= 40:
+            # 1. Check for Submit button (supports all DPI scales 100% - 200%)
+            if hits >= 25:
                 unique_y = np.unique(ys)
                 valid_rows = []
                 for uy in unique_y[::2]:
                     row_xs = xs[ys == uy]
-                    if len(row_xs) >= 12:
+                    if len(row_xs) >= 8:
                         min_x = int(np.min(row_xs))
                         max_x = int(np.max(row_xs))
                         span = max_x - min_x
-                        if 65 <= span <= 140:
+                        if 50 <= span <= 200:
                             valid_rows.append((uy, min_x, max_x))
-                if len(valid_rows) >= 5:
+                if len(valid_rows) >= 4:
                     min_y = valid_rows[0][0]
                     max_y = valid_rows[-1][0]
                     avg_x1 = int(np.mean([row[1] for row in valid_rows]))
                     avg_x2 = int(np.mean([row[2] for row in valid_rows]))
                     btn_w = avg_x2 - avg_x1
                     btn_h = max_y - min_y
-                    if 68 <= btn_w <= 135 and 20 <= btn_h <= 55:
-                        return ('submit', avg_x1 + btn_w // 2, min_y + btn_h // 2, btn_w, btn_h)
+                    if 55 <= btn_w <= 200 and 18 <= btn_h <= 70:
+                        aspect = btn_w / max(1, btn_h)
+                        if 1.4 <= aspect <= 4.8:
+                            return ('submit', avg_x1 + btn_w // 2, min_y + btn_h // 2, btn_w, btn_h)
 
-            # 2. Check for Action Required badge (distinctive blue dot + text to the right)
+            # 2. Check for Action Required badge (blue dot + text to the right)
             if hits < 300:
                 for uy in np.unique(ys):
                     row_xs = xs[ys == uy]
-                    if 1 <= len(row_xs) <= 6:
+                    if 1 <= len(row_xs) <= 8:
                         cx = int(row_xs[0])
                         cy = int(uy)
                         if cx + 115 < w and 0 <= cy - 6 and cy + 8 < h:
-                            txt_sub = arr[cy - 6 : cy + 8, cx + 8 : cx + 115]
+                            txt_sub = arr[cy - 6 : cy + 8, cx + 8 : cx + 115, :3]
                             txt_mask = (txt_sub.max(axis=2) >= 65) & (txt_sub.max(axis=2) <= 220)
-                            col_has = txt_mask.any(axis=0)
-                            active_cols = np.where(col_has)[0]
+                            active_cols = np.where(txt_mask.any(axis=0))[0]
                             if len(active_cols) >= 20 and (active_cols[-1] - active_cols[0]) >= 50:
                                 return ('action_required', cx + 35, cy, 30, 15)
 
@@ -3750,11 +3752,18 @@ class Manager(QObject):
             return
 
         try:
-            scr = QGuiApplication.primaryScreen()
+            scr = (cat.screen() or QGuiApplication.primaryScreen())
             if not scr:
                 return
             pix = scr.grabWindow(0)
-            img = pix.toImage()
+            if pix.isNull():
+                return
+            img = pix.toImage().convertToFormat(QImage.Format_RGBA8888)
+            geom = scr.geometry()
+            pw, ph = img.width(), img.height()
+            gw, gh = geom.width(), geom.height()
+            scale_x = gw / max(1, pw)
+            scale_y = gh / max(1, ph)
         except Exception:
             return
 
@@ -3763,37 +3772,58 @@ class Manager(QObject):
             return
 
         kind = detected[0]
+        px, py = detected[1], detected[2]
+        lx = geom.left() + int(px * scale_x)
+        ly = geom.top() + int(py * scale_y)
+        rx = geom.left() + int(px)
+        ry = geom.top() + int(py)
+
         if kind == 'submit':
-            _, btn_x, btn_y, btn_w, btn_h = detected
-            self._submit_cooldown = now + 6.0
-            self._trigger_cat_submit(btn_x, btn_y)
+            bw = int(detected[3] * scale_x)
+            bh = int(detected[4] * scale_y)
+            self._submit_cooldown = now + 5.0
+            self._trigger_cat_submit(lx, ly, rx, ry, btn_w=bw, btn_h=bh)
         elif kind == 'action_required':
-            _, act_x, act_y, _, _ = detected
-            self._submit_cooldown = now + 6.0
-            self._trigger_cat_action_required(act_x, act_y)
+            self._submit_cooldown = now + 5.0
+            self._trigger_cat_action_required(lx, ly, rx, ry)
 
     def trigger_antigravity_submit_manual(self):
         """Manual / webhook trigger for cat auto-submitting Antigravity."""
         cat = self.primary()
         if not cat:
             return
+        cat_name = (cat.ccfg.get("name") or "Aku").strip()
         try:
-            scr = QGuiApplication.primaryScreen()
-            pix = scr.grabWindow(0)
-            detected = self._detect_antigravity_fast(pix.toImage())
+            scr = (cat.screen() or QGuiApplication.primaryScreen())
+            pix = scr.grabWindow(0) if scr else None
+            img = pix.toImage().convertToFormat(QImage.Format_RGBA8888) if pix and not pix.isNull() else None
+            detected = self._detect_antigravity_fast(img) if img else None
         except Exception:
             detected = None
 
-        if detected:
-            if detected[0] == 'submit':
-                self._trigger_cat_submit(detected[1], detected[2])
-            elif detected[0] == 'action_required':
-                self._trigger_cat_action_required(detected[1], detected[2])
-        else:
-            cur = QCursor.pos()
-            self._trigger_cat_submit(cur.x(), cur.y())
+        if detected and scr:
+            geom = scr.geometry()
+            pw, ph = img.width(), img.height()
+            scale_x = geom.width() / max(1, pw)
+            scale_y = geom.height() / max(1, ph)
+            px, py = detected[1], detected[2]
+            lx = geom.left() + int(px * scale_x)
+            ly = geom.top() + int(py * scale_y)
+            rx = geom.left() + int(px)
+            ry = geom.top() + int(py)
 
-    def _trigger_cat_action_required(self, act_x, act_y):
+            if detected[0] == 'submit':
+                bw = int(detected[3] * scale_x)
+                bh = int(detected[4] * scale_y)
+                self._trigger_cat_submit(lx, ly, rx, ry, btn_w=bw, btn_h=bh)
+            elif detected[0] == 'action_required':
+                self._trigger_cat_action_required(lx, ly, rx, ry)
+        else:
+            cat.say(f"{cat_name} siap auto-submit! Saat ada tombol Submit Antigravity muncul di layar, {cat_name} klik otomatis ya! 🐾✨", 3.5)
+            cat.jump_until = time.time() + 0.5
+            cat.wobble = 10.0
+
+    def _trigger_cat_action_required(self, lx, ly, rx=None, ry=None):
         """Cat runs to Action Required in Antigravity, clicks to open it, then auto-submits."""
         cat = self.primary()
         if not cat or getattr(self, "_submitting_busy", False):
@@ -3801,8 +3831,8 @@ class Manager(QObject):
 
         self._submitting_busy = True
         orig_home = cat.pos()
-        target_x = act_x - cat.width() // 2
-        target_y = act_y - cat.height() + int(cat.scale * 2)
+        target_x = lx - cat.width() // 2
+        target_y = ly - cat.height() + int(cat.scale * 2)
 
         cat_name = (cat.ccfg.get("name") or "Aku").strip()
         cat.say(f"Ada Action Required! {cat_name} bukakan ya! 🐾", 1.8)
@@ -3816,8 +3846,8 @@ class Manager(QObject):
 
                 for _ in range(5):
                     cat.sparkles.append({
-                        "x": act_x + random.randint(-15, 15),
-                        "y": act_y + random.randint(-10, 10),
+                        "x": lx + random.randint(-15, 15),
+                        "y": ly + random.randint(-10, 10),
                         "vy": 1.2, "life": 1.5,
                         "seed": random.random() * 6,
                         "char": random.choice(["🐾", "✨", "⭐"]),
@@ -3827,20 +3857,12 @@ class Manager(QObject):
                 if platform.system() == "Windows":
                     import ctypes
                     user32 = ctypes.windll.user32
-
-                    # Double check: ensure target is NOT a plain white window
-                    scr = QGuiApplication.primaryScreen()
-                    if scr:
-                        cur_img = scr.grabWindow(0).toImage()
-                        if 0 <= act_x < cur_img.width() and 0 <= act_y < cur_img.height():
-                            c = cur_img.pixel(act_x, act_y)
-                            if ((c >> 16) & 0xFF) > 190 and ((c >> 8) & 0xFF) > 190 and (c & 0xFF) > 190:
-                                return  # Safe abort!
-
                     orig_pt = ctypes.wintypes.POINT()
                     user32.GetCursorPos(ctypes.byref(orig_pt))
 
-                    user32.SetCursorPos(act_x, act_y)
+                    QCursor.setPos(QPoint(lx, ly))
+                    if rx is not None and ry is not None:
+                        user32.SetCursorPos(rx, ry)
                     time.sleep(0.04)
                     user32.mouse_event(0x0002, 0, 0, 0, 0)
                     time.sleep(0.04)
@@ -3852,13 +3874,25 @@ class Manager(QObject):
 
                 def check_opened_submit(attempt=1):
                     try:
-                        scr = QGuiApplication.primaryScreen()
+                        scr = (cat.screen() or QGuiApplication.primaryScreen())
                         if scr:
-                            det = self._detect_antigravity_fast(scr.grabWindow(0).toImage())
-                            if det and det[0] == 'submit':
-                                self._submitting_busy = False
-                                self._trigger_cat_submit(det[1], det[2], orig_home=orig_home)
-                                return
+                            pix = scr.grabWindow(0)
+                            if pix and not pix.isNull():
+                                qimg = pix.toImage().convertToFormat(QImage.Format_RGBA8888)
+                                det = self._detect_antigravity_fast(qimg)
+                                if det and det[0] == 'submit':
+                                    geom = scr.geometry()
+                                    scale_x = geom.width() / max(1, qimg.width())
+                                    scale_y = geom.height() / max(1, qimg.height())
+                                    slx = geom.left() + int(det[1] * scale_x)
+                                    sly = geom.top() + int(det[2] * scale_y)
+                                    srx = geom.left() + int(det[1])
+                                    sry = geom.top() + int(det[2])
+                                    sbw = int(det[3] * scale_x)
+                                    sbh = int(det[4] * scale_y)
+                                    self._submitting_busy = False
+                                    self._trigger_cat_submit(slx, sly, srx, sry, btn_w=sbw, btn_h=sbh, orig_home=orig_home)
+                                    return
                     except Exception:
                         pass
 
@@ -3878,7 +3912,7 @@ class Manager(QObject):
 
         QTimer.singleShot(450, do_click_action)
 
-    def _trigger_cat_submit(self, btn_x, btn_y, orig_home=None):
+    def _trigger_cat_submit(self, lx, ly, rx=None, ry=None, btn_w=90, btn_h=35, orig_home=None):
         """Cat runs to the Submit button, pounces, clicks it, emits sparkles, and celebrates."""
         cat = self.primary()
         if not cat:
@@ -3889,8 +3923,8 @@ class Manager(QObject):
         self._submitting_busy = True
         if orig_home is None:
             orig_home = cat.pos()
-        target_x = btn_x - cat.width() // 2
-        target_y = btn_y - cat.height() + int(cat.scale * 2)
+        target_x = lx - cat.width() // 2
+        target_y = ly - cat.height() + int(cat.scale * 2)
 
         cat_name = (cat.ccfg.get("name") or "Aku").strip()
         cat.say(f"Ada Antigravity! {cat_name} klik Submit! 🐾", 1.8)
@@ -3904,8 +3938,8 @@ class Manager(QObject):
 
                 for _ in range(8):
                     cat.sparkles.append({
-                        "x": btn_x + random.randint(-22, 22),
-                        "y": btn_y + random.randint(-14, 14),
+                        "x": lx + random.randint(-22, 22),
+                        "y": ly + random.randint(-14, 14),
                         "vy": 1.4, "life": 1.8,
                         "seed": random.random() * 6,
                         "char": random.choice(["🐾", "✨", "⭐", "💫"]),
@@ -3916,27 +3950,56 @@ class Manager(QObject):
                     import ctypes
                     user32 = ctypes.windll.user32
 
-                    # Double check: ensure the button is STILL Antigravity blue right now
-                    scr = QGuiApplication.primaryScreen()
+                    # Pre-click safety check: ensure the button still has Antigravity blue #007acc
+                    check_rx = rx if rx is not None else lx
+                    check_ry = ry if ry is not None else ly
+                    scr = (cat.screen() or QGuiApplication.primaryScreen())
                     if scr:
-                        cur_img = scr.grabWindow(0).toImage()
-                        if 0 <= btn_x < cur_img.width() and 0 <= btn_y < cur_img.height():
-                            c = cur_img.pixel(btn_x, btn_y)
-                            cb = c & 0xFF
-                            cr = (c >> 16) & 0xFF
-                            cg = (c >> 8) & 0xFF
-                            if not (cb > 140 and cr < 60 and 65 < cg < 170):
+                        cur_pix = scr.grabWindow(0)
+                        if cur_pix and not cur_pix.isNull():
+                            cur_img = cur_pix.toImage().convertToFormat(QImage.Format_RGBA8888)
+                            check_pts = [
+                                (check_rx - max(10, int(btn_w * 0.3)), check_ry),
+                                (check_rx + max(10, int(btn_w * 0.3)), check_ry),
+                                (check_rx, check_ry - max(5, int(btn_h * 0.25))),
+                                (check_rx, check_ry + max(5, int(btn_h * 0.25))),
+                                (check_rx, check_ry)
+                            ]
+                            has_blue = False
+                            for cpx, cpy in check_pts:
+                                if 0 <= cpx < cur_img.width() and 0 <= cpy < cur_img.height():
+                                    c = cur_img.pixel(cpx, cpy)
+                                    cr = (c >> 16) & 0xFF
+                                    cg = (c >> 8) & 0xFF
+                                    cb = c & 0xFF
+                                    if cb > 140 and cr < 65 and 65 < cg < 175:
+                                        has_blue = True
+                                        break
+                            if not has_blue:
                                 return  # Button disappeared or app changed! Safe abort!
 
                     orig_pt = ctypes.wintypes.POINT()
                     user32.GetCursorPos(ctypes.byref(orig_pt))
 
-                    user32.SetCursorPos(btn_x, btn_y)
-                    time.sleep(0.03)
-                    user32.mouse_event(0x0002, 0, 0, 0, 0)
+                    # Move cursor to Submit button
+                    QCursor.setPos(QPoint(lx, ly))
+                    if rx is not None and ry is not None:
+                        user32.SetCursorPos(rx, ry)
                     time.sleep(0.04)
-                    user32.mouse_event(0x0004, 0, 0, 0, 0)
+
+                    # Click 1 (Focus / activate window)
+                    user32.mouse_event(0x0002, 0, 0, 0, 0)
                     time.sleep(0.03)
+                    user32.mouse_event(0x0004, 0, 0, 0, 0)
+                    time.sleep(0.05)
+
+                    # Click 2 (Submit)
+                    user32.mouse_event(0x0002, 0, 0, 0, 0)
+                    time.sleep(0.03)
+                    user32.mouse_event(0x0004, 0, 0, 0, 0)
+                    time.sleep(0.04)
+
+                    # Also send Enter key (VK_RETURN)
                     user32.keybd_event(0x0D, 0, 0, 0)
                     time.sleep(0.02)
                     user32.keybd_event(0x0D, 0, 2, 0)
