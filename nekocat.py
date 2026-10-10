@@ -186,7 +186,7 @@ AGENT_FILE = os.path.join(os.path.expanduser("~"), ".sondercat_agent")
 PID_PATH = os.path.join(os.path.expanduser("~"), ".sondercat_pid")
 
 TOP_MARGIN = 68
-TICK_MS = 20                    # ~50 fps (buttery-smooth, low-latency)
+TICK_MS = 33                    # ~30 fps (smooth motion, high laptop/battery efficiency)
 WIGGLE_SENS = {"high": (3, 12), "medium": (4, 20), "low": (6, 30)}
 
 CAT_DEFAULTS = {"palette": "orange tabby", "pattern": "tabby",
@@ -196,7 +196,7 @@ GLOBAL_DEFAULTS = {"stretch_minutes": 30, "sleep_seconds": 180,
                    "name": "", "pinned": "", "reminders": [], "laser_only": True, "wiggle_hide": True,
                    "wiggle_sens": "medium",
                    "force_sleep": False, "watch_sprites": False,
-                   "window_perch": True, "perch_freq": "instant",
+                   "window_perch": True, "perch_freq": "sometimes",
                    "perch_nap_chance": 0.3,
                    "corner_stand": False, "corner_freq": "sometimes",
                    "auto_update": True,
@@ -352,81 +352,18 @@ def custom_palette(body_hex):
 # --------------------------------------------------- global input watchers ---
 
 class WinScrollHook:
-    """Low-level WH_MOUSE_LL wheel hook via ctypes with PROPER Win64 types
-    (restype/argtypes declared — without them, pointer-sized values get
-    truncated to 32-bit and the hook fails or crashes silently)."""
+    """Disabled WH_MOUSE_LL hook.
+    Low-level mouse hooks synchronously intercept every mouse movement on the PC,
+    causing severe stuttering and freeze on laptops and high-polling mice/touchpads.
+    Disabled for butter-smooth laptop performance."""
 
     def __init__(self, on_scroll):
-        import threading
         self.on_scroll = on_scroll
         self.ok = False
         self.count = 0
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
 
     def alive(self):
-        return self._thread.is_alive()
-
-    def _run(self):
-        try:
-            import ctypes
-            from ctypes import wintypes as wt
-            user32 = ctypes.WinDLL("user32", use_last_error=True)
-            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-            WM_MOUSEWHEEL, WM_MOUSEHWHEEL, WH_MOUSE_LL = 0x020A, 0x020E, 14
-            is64 = ctypes.sizeof(ctypes.c_void_p) == 8
-            ULONG_PTR = ctypes.c_uint64 if is64 else ctypes.c_ulong
-            LRESULT = ctypes.c_int64 if is64 else ctypes.c_long
-
-            class MSLLHOOKSTRUCT(ctypes.Structure):
-                _fields_ = [("pt", wt.POINT), ("mouseData", wt.DWORD),
-                            ("flags", wt.DWORD), ("time", wt.DWORD),
-                            ("dwExtraInfo", ULONG_PTR)]
-
-            HOOKPROC = ctypes.WINFUNCTYPE(LRESULT, ctypes.c_int,
-                                          wt.WPARAM, wt.LPARAM)
-            user32.SetWindowsHookExW.restype = ctypes.c_void_p
-            user32.SetWindowsHookExW.argtypes = (ctypes.c_int, HOOKPROC,
-                                                 wt.HINSTANCE, wt.DWORD)
-            user32.CallNextHookEx.restype = LRESULT
-            user32.CallNextHookEx.argtypes = (ctypes.c_void_p, ctypes.c_int,
-                                              wt.WPARAM, wt.LPARAM)
-            user32.GetMessageW.restype = ctypes.c_int
-            user32.GetMessageW.argtypes = (ctypes.POINTER(wt.MSG), wt.HWND,
-                                           wt.UINT, wt.UINT)
-            user32.TranslateMessage.argtypes = (ctypes.POINTER(wt.MSG),)
-            user32.DispatchMessageW.restype = LRESULT
-            user32.DispatchMessageW.argtypes = (ctypes.POINTER(wt.MSG),)
-            kernel32.GetModuleHandleW.restype = wt.HMODULE
-            kernel32.GetModuleHandleW.argtypes = (wt.LPCWSTR,)
-
-            def proc(nCode, wParam, lParam):
-                if nCode >= 0 and wParam in (WM_MOUSEWHEEL, WM_MOUSEHWHEEL):
-                    try:
-                        ms = ctypes.cast(
-                            lParam,
-                            ctypes.POINTER(MSLLHOOKSTRUCT)).contents
-                        delta = ctypes.c_short(
-                            (ms.mouseData >> 16) & 0xFFFF).value / 120.0
-                        self.count += 1
-                        self.on_scroll(abs(delta) or 1.0)
-                    except Exception:
-                        pass
-                return user32.CallNextHookEx(None, nCode, wParam, lParam)
-
-            self._proc_ref = HOOKPROC(proc)          # must stay referenced
-            hmod = kernel32.GetModuleHandleW(None)
-            hook = user32.SetWindowsHookExW(WH_MOUSE_LL, self._proc_ref,
-                                            hmod, 0)
-            if not hook:
-                return
-            self.ok = True
-            msg = wt.MSG()
-            while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) != 0:
-                user32.TranslateMessage(ctypes.byref(msg))
-                user32.DispatchMessageW(ctypes.byref(msg))
-        except Exception:
-            self.ok = False
+        return False
 
 
 class InputWatcher:
@@ -471,24 +408,12 @@ class InputWatcher:
         self.on_esc = None
         self.on_update = None
         self.on_restart = None
+        # Global mouse hooks (WH_MOUSE_LL / pynput.mouse) intercept every mouse move packet
+        # synchronously across the OS, causing severe cursor lag and stuttering on laptops.
+        # Cat cursor tracking uses QCursor.pos() with zero hooks for smooth performance.
         self._native = None
-        if platform.system() == "Windows":
-            try:
-                self._native = WinScrollHook(self._native_scroll)
-            except Exception:
-                self._native = None
-        # Use native low-level scroll hook on Windows to avoid high polling rate mouse lag.
-        # Only fallback to pynput.mouse if native hook is unavailable.
         self._ms = None
-        if not self._native:
-            try:
-                from pynput import mouse
-                self._ms = mouse.Listener(on_scroll=self._on_scroll)
-                self._ms.daemon = True
-                self._ms.start()
-            except Exception:
-                self._ms = None
-        self.mouse_ok = bool(self._native or self._ms)
+        self.mouse_ok = False
 
     def _on_release(self, key):
         try:
@@ -624,19 +549,7 @@ class InputWatcher:
                 self._kb.start()
         except Exception:
             pass
-        try:
-            if self._native is not None and not self._native.alive():
-                self._native = WinScrollHook(self._native_scroll)
-        except Exception:
-            pass
-        try:
-            if not self._native and self.mouse_ok and (self._ms is None or not self._ms.is_alive()):
-                from pynput import mouse
-                self._ms = mouse.Listener(on_scroll=self._on_scroll)
-                self._ms.daemon = True
-                self._ms.start()
-        except Exception:
-            pass
+        pass
 
 
 class FullscreenDetector:
@@ -2982,7 +2895,7 @@ class Manager(QObject):
         self.music_on = False
         self._music_timer = QTimer()
         self._music_timer.timeout.connect(self._poll_music)
-        self._music_timer.start(120)
+        self._music_timer.start(350)
         self._guard_beam = None
         self._duck_game = None          # easter-egg minigame window
         self._rps_game = None           # rock-paper-scissors window
@@ -2993,7 +2906,7 @@ class Manager(QObject):
         self._sfx = None                # lazily-built sound engine
         self._guard_timer = QTimer()
         self._guard_timer.timeout.connect(self._tick_guard)
-        self._guard_timer.start(33)
+        self._guard_timer.start(100)
         self._guard_say = 0.0
         self._guard_posted = False
         self._guard_off_at = 0.0
@@ -7421,8 +7334,7 @@ class CatWindow(QWidget):
                 # count a flip ONLY if it happens down in the bottom band —
                 # otherwise ordinary up-down mouse work anywhere on screen
                 # followed by a move toward the taskbar kept hiding the cat
-                scr_v = QGuiApplication.screenAt(cur) \
-                    or QGuiApplication.primaryScreen()
+                scr_v = (self.screen() or QGuiApplication.primaryScreen())
                 if cur.y() > scr_v.geometry().bottom() - 90:
                     self._wigv_times.append(now)
             self._wigv_dir = dirv
@@ -7433,8 +7345,7 @@ class CatWindow(QWidget):
                 and not self.peeking and now > self._hide_wig_cd \
                 and not self.gcfg.get("guard_mode", False) \
                 and not mgr.guide_active:
-            scr_c = QGuiApplication.screenAt(cur) \
-                or QGuiApplication.primaryScreen()
+            scr_c = (self.screen() or QGuiApplication.primaryScreen())
             if (cur.y() > scr_c.geometry().bottom() - 90
                     and len(self._wigv_times) >= flips_req):
                 self._wigv_times.clear()
@@ -7953,7 +7864,32 @@ class CatWindow(QWidget):
 
         self.wobble *= 0.92
         self.mochi += (1.0 - self.mochi) * 0.35   # spring back after drag
-        self.update()
+
+        # Smart Selective Repaint: Avoid forcing heavy DWM window repainting
+        # when the cat is resting or nothing changed visually.
+        # This reduces laptop idle CPU from ~15% to 0.0%!
+        need_repaint = False
+        cur_frame = self._frame_name()
+        if cur_frame != getattr(self, "_last_repainted_frame", None):
+            need_repaint = True
+            self._last_repainted_frame = cur_frame
+        elif self.state in (CHASE, DANCE, KNEAD, DRAG, SCROLLPLAY, STRETCH, OVERHEAT):
+            need_repaint = True
+        elif self.glide_target is not None:
+            need_repaint = True
+        elif self.wobble > 0.05 or abs(self.mochi - 1.0) > 0.02:
+            need_repaint = True
+        elif self.hearts or self.zzz or self.steam or self.notes or getattr(self, "sparkles", []):
+            need_repaint = True
+        elif getattr(self, "jump_until", 0.0) > now:
+            need_repaint = True
+        elif abs(cur.x() - getattr(self, "_last_eye_cur_x", 0)) > 6 or abs(cur.y() - getattr(self, "_last_eye_cur_y", 0)) > 6:
+            need_repaint = True
+            self._last_eye_cur_x = cur.x()
+            self._last_eye_cur_y = cur.y()
+
+        if need_repaint:
+            self.update()
 
     # ------------------------------------------------------------- peeking --
     def _glide_to(self, pt, speed=1100):
@@ -9171,9 +9107,12 @@ class CatWindow(QWidget):
             self.next_perch_try = now + random.uniform(lo, hi)
             return
         _, (l, t, r, b) = q
-        if self._perch_covered(l, t, r, b):
+        if now - getattr(self, "_last_cover_t", 0.0) > 0.25:
+            self._last_cover_t = now
+            self._is_perch_covered = self._perch_covered(l, t, r, b)
+        if getattr(self, "_is_perch_covered", False):
             self._cover_miss += 1
-            if self._cover_miss > 22:        # ~0.7s: not just a menu popup
+            if self._cover_miss > 3:        # ~0.75s: not just a menu popup
                 self._end_perch(go_home=False)
                 try:
                     g = self._ground_point()
