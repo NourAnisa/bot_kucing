@@ -190,7 +190,8 @@ TICK_MS = 33                    # ~30 fps (smooth motion, high laptop/battery ef
 WIGGLE_SENS = {"high": (3, 12), "medium": (4, 20), "low": (6, 30)}
 
 CAT_DEFAULTS = {"palette": "orange tabby", "pattern": "tabby",
-                "custom_body": None, "scale": 6, "pos": None}
+                "custom_body": None, "scale": 6, "pos": None,
+                "accessory": "none"}
 GLOBAL_DEFAULTS = {"stretch_minutes": 30, "sleep_seconds": 180,
                    "auto_peek": True, "chase_enabled": True,
                    "name": "", "pinned": "", "reminders": [], "laser_only": True, "wiggle_hide": True,
@@ -225,7 +226,13 @@ GLOBAL_DEFAULTS = {"stretch_minutes": 30, "sleep_seconds": 180,
                    "cat_birthday": "",
                    "trick_cooldown": 0.0,
                    "next_idle_phrase": 0.0,
-                   "antigravity_auto_submit": True}
+                   "antigravity_auto_submit": True,
+                   "fishes_count": 5,
+                   "affinity_points": 0,
+                   "affinity_level": 1,
+                   "voice_tts": True,
+                   "eye_care_20": True,
+                   "battery_guardian": True}
 
 (IDLE, KNEAD, SLEEP, CHASE, DRAG, STRETCH,
  OVERHEAT, SCROLLPLAY, PEEK, THINK, DANCE) = range(11)
@@ -406,6 +413,7 @@ class InputWatcher:
         self.pyn_count = 0
         self.on_ask = None
         self.on_esc = None
+        self.on_note = None
         self.on_update = None
         self.on_restart = None
         # Global mouse hooks (WH_MOUSE_LL / pynput.mouse) intercept every mouse move packet
@@ -425,7 +433,7 @@ class InputWatcher:
 
     def _on_press(self, key):
         # --- global shortcuts FIRST, before any filtering, so nothing can
-        # block them (Ctrl+Space ask, Ctrl+Shift+Alt+P update / +R restart) ---
+        # block them (Ctrl+Space/Ctrl+Alt+C ask, Ctrl+Alt+N note, Ctrl+Shift+Alt+P update / +R restart) ---
         try:
             self.last_any_key = time.time()   # modifiers count here — keeps
                                               # the phantom-purge honest
@@ -436,14 +444,19 @@ class InputWatcher:
             kn = getattr(key, "name", None)
             ch = getattr(key, "char", None)
             vk = getattr(key, "vk", None)
-            if kn == "space" and self.on_ask is not None \
-                    and (names & {"ctrl", "ctrl_l", "ctrl_r"}):
-                self.on_ask()
-            elif kn == "esc" and self.on_esc is not None:
-                self.on_esc()
             has_ctrl = bool(names & {"ctrl", "ctrl_l", "ctrl_r"})
             has_shift = bool(names & {"shift", "shift_l", "shift_r"})
             has_alt = bool(names & {"alt", "alt_l", "alt_r", "alt_gr"})
+
+            is_c = (vk == 0x43 or (isinstance(ch, str) and ch.lower() == "c") or ch == "\x03")
+            is_n = (vk == 0x4E or (isinstance(ch, str) and ch.lower() == "n") or ch == "\x0e")
+
+            if ((kn == "space" and has_ctrl) or (has_ctrl and has_alt and is_c)) and self.on_ask is not None:
+                self.on_ask()
+            elif has_ctrl and has_alt and is_n and self.on_note is not None:
+                self.on_note()
+            elif kn == "esc" and self.on_esc is not None:
+                self.on_esc()
             if has_ctrl and has_shift and has_alt:
                 is_p = (vk == 0x50
                         or (isinstance(ch, str) and ch.lower() == "p")
@@ -2696,6 +2709,104 @@ class BubbleWindow(QWidget):
                    shown)
 
 
+class StickyNoteWindow(QWidget):
+    """Mini yellow sticky note / Cat Memo that floats on the desktop and auto-saves."""
+    def __init__(self, mgr):
+        super().__init__(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        self.mgr = mgr
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setFixedSize(300, 270)
+        self._drag_pos = None
+        self._note_file = os.path.expanduser("~/.sondercat_notes.txt")
+        self._init_ui()
+        self._load_note()
+
+    def _init_ui(self):
+        from PySide6.QtWidgets import QTextEdit, QPushButton, QLabel, QHBoxLayout, QVBoxLayout
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(6)
+
+        hdr = QHBoxLayout()
+        cat = self.mgr.primary()
+        cat_name = (cat.ccfg.get("name") or "Michan").strip() if cat else "Michan"
+        self.lbl_title = QLabel(f"📝 Memo & Catatan ({cat_name})", self)
+        self.lbl_title.setStyleSheet("font-weight: bold; color: #5d4037; font-size: 13px; font-family: 'Segoe UI', Arial;")
+
+        btn_close = QPushButton("✕", self)
+        btn_close.setFixedSize(22, 22)
+        btn_close.setCursor(Qt.PointingHandCursor)
+        btn_close.setStyleSheet(
+            "QPushButton { border: none; background: #ffe082; color: #5d4037; font-weight: bold; border-radius: 11px; }"
+            "QPushButton:hover { background: #ffca28; }"
+        )
+        btn_close.clicked.connect(self.hide)
+
+        hdr.addWidget(self.lbl_title)
+        hdr.addStretch()
+        hdr.addWidget(btn_close)
+        layout.addLayout(hdr)
+
+        self.text_edit = QTextEdit(self)
+        self.text_edit.setPlaceholderText("Tulis catatan atau to-do list di sini...\n(Otomatis tersimpan realtime 🐾)")
+        self.text_edit.setStyleSheet(
+            "QTextEdit { background: transparent; border: none; color: #3e2723; font-size: 13px; font-family: 'Segoe UI', Arial; selection-background-color: #ffe082; }"
+        )
+        self.text_edit.textChanged.connect(self._save_note)
+        layout.addWidget(self.text_edit)
+
+        self.lbl_status = QLabel("Tersimpan otomatis 💾  (Ctrl+Alt+N)", self)
+        self.lbl_status.setStyleSheet("color: #8d6e63; font-size: 10px; font-style: italic;")
+        layout.addWidget(self.lbl_status, 0, Qt.AlignRight)
+
+    def paintEvent(self, ev):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        p.setPen(QColor(230, 190, 70, 180))
+        p.setBrush(QColor("#fff9c4"))
+        p.drawRoundedRect(QRectF(4, 4, self.width() - 8, self.height() - 8), 12, 12)
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(255, 236, 179, 210))
+        p.drawRoundedRect(QRectF(self.width() // 2 - 25, 2, 50, 10), 3, 3)
+
+    def mousePressEvent(self, ev):
+        if ev.button() == Qt.LeftButton:
+            self._drag_pos = ev.globalPosition().toPoint() - self.pos()
+
+    def mouseMoveEvent(self, ev):
+        if self._drag_pos and (ev.buttons() & Qt.LeftButton):
+            self.move(ev.globalPosition().toPoint() - self._drag_pos)
+
+    def mouseReleaseEvent(self, ev):
+        self._drag_pos = None
+
+    def _load_note(self):
+        try:
+            if os.path.exists(self._note_file):
+                with open(self._note_file, "r", encoding="utf-8") as f:
+                    self.text_edit.setPlainText(f.read())
+        except Exception:
+            pass
+
+    def _save_note(self):
+        try:
+            with open(self._note_file, "w", encoding="utf-8") as f:
+                f.write(self.text_edit.toPlainText())
+        except Exception:
+            pass
+
+    def append_note(self, text):
+        cur = self.text_edit.toPlainText()
+        if cur and not cur.endswith("\n"):
+            cur += "\n"
+        cur += text
+        self.text_edit.setPlainText(cur)
+        self._save_note()
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+
 class AskBox(QWidget):
     """A speech-bubble-styled prompt that floats above the cat: cream
     paper, rounded, with a tail pointing down at the cat (Ctrl+Space)."""
@@ -2925,6 +3036,8 @@ class Manager(QObject):
         self.inputs = InputWatcher(on_event=self._bridge.poked.emit)
         self.inputs.on_ask = lambda: self._call_bridge.call.emit(
             self.open_ask_box)
+        self.inputs.on_note = lambda: self._call_bridge.call.emit(
+            self.open_sticky_note)
         self.inputs.on_esc = lambda: self._call_bridge.call.emit(
             self.dismiss_bubble)
         self.inputs.on_update = lambda: self._call_bridge.call.emit(
@@ -2933,6 +3046,11 @@ class Manager(QObject):
             self._restart)
         self.fs_detect = FullscreenDetector()
         self.meow = Meow()
+        self._sticky_note = None
+        self._last_battery_check = 0.0
+        self._last_battery_plugged = None
+        self._last_battery_alert = 0.0
+        self._last_eye_care_check = time.time()
         self._http_server = None
         if self.cfg["global"].get("http_server_enabled", True):
             self._start_http_server()
@@ -3032,17 +3150,23 @@ class Manager(QObject):
                 if self.pomo_loop:
                     f, b = self.pomo_loop
                     if kind == "focus":
+                        self.reward_fish(2, "Sesi Fokus Pomodoro")
                         self.pomo_kind, self.pomo_end = "break", now + b * 60
                         self.celebrate(self._named(
                             f"focus done! {b} min break 🎉"))
+                        self.speak_tts(f"Sesi fokus selesai kak! Waktunya istirahat {b} menit!")
                     else:
                         self.pomo_kind, self.pomo_end = "focus", now + f * 60
                         self.celebrate(self._named(
                             f"break's over — {f} min focus!"))
+                        self.speak_tts("Waktu istirahat selesai! Ayo fokus lagi!")
                 else:
+                    if kind == "focus":
+                        self.reward_fish(2, "Sesi Fokus Pomodoro")
                     self.celebrate(self._named("focus done! Break time? 🎉"
                                                if kind == "focus"
                                                else "break's over — let's go!"))
+                    self.speak_tts("Sesi fokus selesai! Break time kak!" if kind == "focus" else "Ayo lanjut!")
         elif self.tray and not self.agent_working:
             self.tray.setToolTip(APP_NAME)
 
@@ -3069,6 +3193,7 @@ class Manager(QObject):
                 self.celebrate(f"Pengingat: {text}")
                 if self.primary():
                     self.primary().say(f"💬 PENGINGAT UNTUK {call_name.upper()}:\n{text}", 12, "#d32f2f")
+                self.speak_tts(f"Pengingat untuk {call_name}: {text}")
                 if hasattr(self, "meow") and self.meow:
                     try:
                         self.meow.play()
@@ -3082,6 +3207,16 @@ class Manager(QObject):
         if self.cfg["global"].get("antigravity_auto_submit", True) and now > getattr(self, "_next_submit_scan", 0.0):
             self._next_submit_scan = now + 2.5
             self.check_antigravity_submit(now)
+
+        # 7. Laptop Battery Guardian (alert <20%, celebrate on charger)
+        if self.cfg["global"].get("battery_guardian", True) and (now - getattr(self, "_last_battery_check", 0.0) >= 40.0):
+            self._last_battery_check = now
+            self._check_battery(now)
+
+        # 8. Eye-Care 20-20-20 Rule (every 20 minutes)
+        if self.cfg["global"].get("eye_care_20", True) and (now - getattr(self, "_last_eye_care_check", now) >= 1200.0):
+            self._last_eye_care_check = now
+            self._trigger_eye_care()
 
         # agent status
         kind, label = read_agent_status()
@@ -3926,6 +4061,8 @@ class Manager(QObject):
                         pass
 
                 cat.say(f"HAP! Sudah {cat_name} klik Submit untukmu, kak! 🐾✨", 3.0)
+                self.reward_fish(1, "Klik auto-submit Antigravity!")
+                self.speak_tts(f"HAP! Sudah {cat_name} klik Submit untukmu kak!")
 
             except Exception:
                 pass
@@ -3937,6 +4074,192 @@ class Manager(QObject):
                 QTimer.singleShot(1400, return_home)
 
         QTimer.singleShot(500, do_stomp)
+
+    # ----------------------------------------------- advanced smart features --
+    def open_sticky_note(self):
+        if self._sticky_note is None:
+            self._sticky_note = StickyNoteWindow(self)
+        self._sticky_note.show()
+        self._sticky_note.raise_()
+        self._sticky_note.activateWindow()
+
+    def append_sticky_note(self, text):
+        if self._sticky_note is None:
+            self._sticky_note = StickyNoteWindow(self)
+        self._sticky_note.append_note(text)
+
+    def speak_tts(self, text):
+        if not self.cfg["global"].get("voice_tts", True):
+            return
+        import re, threading
+        clean = re.sub(r'\[ACTION:[^\]]+\]', '', text)
+        clean = re.sub(r'https?://\S+', '', clean)
+        clean = re.sub(r'[^a-zA-Z0-9\s.,!?\'"-]', '', clean).strip()
+        if not clean or len(clean) < 2:
+            return
+        def _speak():
+            try:
+                import win32com.client
+                import pythoncom
+                pythoncom.CoInitialize()
+                spk = win32com.client.Dispatch("SAPI.SpVoice")
+                spk.Rate = 1
+                spk.Volume = 95
+                spk.Speak(clean[:250])
+                pythoncom.CoUninitialize()
+            except Exception:
+                pass
+        threading.Thread(target=_speak, daemon=True).start()
+
+    def toggle_voice_tts(self):
+        g = self.cfg["global"]
+        cur = g.get("voice_tts", True)
+        g["voice_tts"] = not cur
+        save_config(self.cfg)
+        status = "AKTIF 🔊" if g["voice_tts"] else "NONAKTIF 🔇"
+        self.say_primary(f"Suara Alami TTS: {status}", 3.0)
+        if g["voice_tts"]:
+            self.speak_tts("Suara kucing aktif!")
+
+    def toggle_eye_care(self):
+        g = self.cfg["global"]
+        cur = g.get("eye_care_20", True)
+        g["eye_care_20"] = not cur
+        save_config(self.cfg)
+        status = "AKTIF 👁️ (Setiap 20 menit)" if g["eye_care_20"] else "NONAKTIF"
+        self.say_primary(f"Aturan Mata 20-20-20: {status}", 3.0)
+
+    def _trigger_eye_care(self):
+        cat = self.primary()
+        if not cat:
+            return
+        cat_name = (cat.ccfg.get("name") or "Michan").strip()
+        msg = f"👀 Aturan 20-20-20: {cat_name} ingatkan istirahatkan matamu! Pandang objek sejauh 6 meter selama 20 detik ya kak! 🌿✨"
+        cat.say(msg, 7.0, "#00897b")
+        self.speak_tts("Waktunya istirahatkan mata sejenak selama dua puluh detik kak!")
+
+    def _check_battery(self, now):
+        try:
+            import psutil
+            batt = psutil.sensors_battery()
+            if not batt:
+                return
+            plugged = batt.power_plugged
+            pct = int(batt.percent)
+            old_plugged = getattr(self, "_last_battery_plugged", None)
+            self._last_battery_plugged = plugged
+            cat = self.primary()
+            if not cat:
+                return
+
+            if old_plugged is False and plugged is True:
+                cat.sparkles.append({
+                    "x": cat.x() + cat.width() // 2,
+                    "y": cat.y() + cat.height() // 2,
+                    "vy": 1.2, "life": 1.5, "seed": 1.0,
+                    "char": "⚡", "color": "#ffeb3b"
+                })
+                cat.say("Hore! Charger dicolok! Daya laptop terselamatkan ⚡🔌", 3.5, "#2e7d32")
+                self.speak_tts("Hore! Charger dicolok! Daya laptop aman!")
+
+            elif plugged is False and pct <= 20:
+                last_alert = getattr(self, "_last_battery_alert", 0.0)
+                if now - last_alert >= 480.0:
+                    self._last_battery_alert = now
+                    cat.jump_until = now + 0.6
+                    cat.wobble = 14.0
+                    cat.say(f"⚠️ PERINGATAN: Baterai tinggal {pct}%! Segera colok charger laptop kak! 🔋🔌", 6.0, "#d32f2f")
+                    self.speak_tts(f"Peringatan! Baterai laptop sisa {pct} persen! Segera colok charger!")
+        except Exception:
+            pass
+
+    def check_battery_status_manual(self):
+        try:
+            import psutil
+            batt = psutil.sensors_battery()
+            cat = self.primary()
+            if not batt or not cat:
+                self.say_primary("Baterai tidak terdeteksi (mungkin PC Desktop) 🔌", 3.0)
+                return
+            pct = int(batt.percent)
+            plugged = "Sedang Dicas ⚡🔌" if batt.power_plugged else "Memakai Baterai 🔋"
+            cat.say(f"🔋 Status Baterai: {pct}%\n({plugged})", 4.0, "#0288d1")
+            self.speak_tts(f"Baterai laptop sisa {pct} persen.")
+        except Exception:
+            self.say_primary("Gagal membaca sensor baterai 😿", 3.0)
+
+    def reward_fish(self, count=1, reason=""):
+        g = self.cfg["global"]
+        cur = int(g.get("fishes_count", 5)) + count
+        g["fishes_count"] = cur
+        save_config(self.cfg)
+        msg = f"+{count} Ikan Virtual! 🐟 (Total: {cur})"
+        if reason:
+            msg = f"{msg} — {reason}"
+        cat = self.primary()
+        if cat:
+            cat.say(msg, 3.0, "#2e7d32")
+
+    def feed_fish(self):
+        g = self.cfg["global"]
+        cur = int(g.get("fishes_count", 5))
+        cat = self.primary()
+        cat_name = (cat.ccfg.get("name") or "Michan").strip() if cat else "Michan"
+        if cur <= 0:
+            if cat:
+                cat.say("Ikannya habis kak! 😿 Selesaikan tugas atau fokus belajar untuk dapat ikan lagi ya!", 4.0)
+                self.speak_tts("Ikannya habis kak! Selesaikan tugas dulu ya!")
+            return
+        g["fishes_count"] = cur - 1
+        save_config(self.cfg)
+        if cat:
+            cat.give_snack()
+            cat.say(f"Nyam nyam! Enak banget! Makasih ikannya kak! 🥰🐟 (+15 Love)", 3.5)
+        self.add_affinity(15)
+        self.speak_tts("Nyam nyam! Makasih banyak ikannya kak!")
+
+    AFFINITY_TIERS = [
+        (501, 5, "Soulmate Abadi 🌟"),
+        (301, 4, "Sahabat Sejati 👑"),
+        (151, 3, "Kucing Manja 💖"),
+        (51, 2, "Teman Setia 🐱"),
+        (0, 1, "Sahabat Baru 🐾")
+    ]
+
+    def get_affinity_info(self):
+        pts = int(self.cfg["global"].get("affinity_points", 0))
+        for thresh, lvl, title in self.AFFINITY_TIERS:
+            if pts >= thresh:
+                return lvl, title, pts
+        return 1, "Sahabat Baru 🐾", pts
+
+    def add_affinity(self, pts=10):
+        g = self.cfg["global"]
+        old_pts = int(g.get("affinity_points", 0))
+        new_pts = old_pts + pts
+        g["affinity_points"] = new_pts
+        old_lvl, _, _ = self.get_affinity_info()
+        save_config(self.cfg)
+        new_lvl, new_title, _ = self.get_affinity_info()
+        if new_lvl > old_lvl:
+            cat = self.primary()
+            cat_name = (cat.ccfg.get("name") or "Michan").strip() if cat else "Michan"
+            if cat:
+                cat.birthday_confetti()
+                cat.say(f"🎉 LEVEL UP! Hubungan kita naik ke Level {new_lvl}: {new_title}! 💖✨", 5.0, "#d81b60")
+            self.speak_tts(f"Selamat kak! Level cinta kita bertambah menjadi level {new_lvl} {new_title}!")
+
+    def show_affinity_status(self):
+        lvl, title, pts = self.get_affinity_info()
+        next_thresh = 50 if lvl == 1 else (150 if lvl == 2 else (300 if lvl == 3 else (500 if lvl == 4 else 1000)))
+        prev_thresh = 0 if lvl == 1 else (51 if lvl == 2 else (151 if lvl == 3 else (301 if lvl == 4 else 501)))
+        progress = max(0, min(100, int((pts - prev_thresh) / max(1, next_thresh - prev_thresh) * 100)))
+        bar = "█" * (progress // 10) + "░" * (10 - (progress // 10))
+        cat = self.primary()
+        cat_name = (cat.ccfg.get("name") or "Michan").strip() if cat else "Michan"
+        msg = f"💖 Afinitas {cat_name}:\nLevel {lvl} ({title})\nPoinku: {pts} pts\n[{bar}] {progress}%\nBeri makan ikan 🐟 untuk naik level!"
+        if cat:
+            cat.say(msg, 6.0, "#d81b60")
 
     # -------------------------------------------------------------- cats ----
     def add_cat(self):
@@ -5833,12 +6156,17 @@ class Manager(QObject):
                 p = urllib.parse.urlparse(self.path).path
                 if p in ("/status", "/"):
                     cats_list = [c.ccfg.get("name") or "Cat" for c in mgr_self.cats]
+                    lvl, title, pts = mgr_self.get_affinity_info()
                     data = {
                         "app": APP_NAME,
                         "version": APP_VERSION,
                         "ai_provider": mgr_self.cfg["global"].get("ai_provider", "gemini"),
                         "agent_working": mgr_self.agent_working,
                         "agent_label": mgr_self.agent_label,
+                        "fishes_count": int(mgr_self.cfg["global"].get("fishes_count", 5)),
+                        "affinity_level": lvl,
+                        "affinity_title": title,
+                        "affinity_points": pts,
                         "cats": cats_list
                     }
                     self._send_cors(200)
@@ -5902,6 +6230,84 @@ class Manager(QObject):
                         lambda: mgr_self.trigger_antigravity_submit_manual())
                     self._send_cors(200)
                     self.wfile.write(b'{"ok": true, "action": "antigravity_submit"}')
+                    return
+
+                elif p == "/notify":
+                    status = str(payload.get("status", "info")).lower()
+                    title = str(payload.get("title", "Notifikasi"))
+                    message = str(payload.get("message", "")).strip()
+                    def do_notify():
+                        cat = mgr_self.primary()
+                        if not cat: return
+                        if status == "success":
+                            for _ in range(6):
+                                cat.sparkles.append({
+                                    "x": cat.x() + cat.width() // 2 + random.randint(-20, 20),
+                                    "y": cat.y() + cat.height() // 2 + random.randint(-15, 15),
+                                    "vy": 1.3, "life": 1.6, "seed": random.random()*4,
+                                    "char": random.choice(["✨", "🎉", "🐟"]), "color": "#4caf50"
+                                })
+                            mgr_self.reward_fish(1, f"Tugas sukses: {title}")
+                            cat.say(f"🎉 SUKSES: {title}\n{message}", 5.0, "#2e7d32")
+                            mgr_self.speak_tts(f"Sukses! {title}. {message}")
+                        elif status == "error":
+                            cat.jump_until = time.time() + 0.5
+                            cat.wobble = 12.0
+                            cat.say(f"😿 ERROR: {title}\n{message}", 6.0, "#d32f2f")
+                            if hasattr(mgr_self, "meow") and mgr_self.meow:
+                                mgr_self.meow.play()
+                            mgr_self.speak_tts(f"Perhatian! Terjadi error pada {title}")
+                        else:
+                            cat.say(f"ℹ️ {title}\n{message}", 4.5, "#0288d1")
+                    mgr_self._call_bridge.call.emit(do_notify)
+                    self._send_cors(200)
+                    self.wfile.write(b'{"ok": true}')
+                    return
+
+                elif p == "/git":
+                    event = str(payload.get("event", "commit")).lower()
+                    repo = str(payload.get("repo", "project"))
+                    message = str(payload.get("message", "")).strip()
+                    def do_git():
+                        cat = mgr_self.primary()
+                        if not cat: return
+                        mgr_self.reward_fish(1, f"Git {event}")
+                        cat.say(f"🚀 Git {event.title()} [{repo}]\n\"{message}\" (+1 🐟)", 5.0, "#1565c0")
+                        mgr_self.speak_tts(f"Git {event} berhasil di repository {repo}!")
+                    mgr_self._call_bridge.call.emit(do_git)
+                    self._send_cors(200)
+                    self.wfile.write(b'{"ok": true}')
+                    return
+
+                elif p == "/whatsapp":
+                    sender = str(payload.get("sender", "WhatsApp"))
+                    msg = str(payload.get("message", "")).strip()
+                    def do_wa():
+                        cat = mgr_self.primary()
+                        if not cat: return
+                        cat.say(f"💬 WA dari {sender}:\n{msg}", 7.0, "#25d366")
+                        if hasattr(mgr_self, "meow") and mgr_self.meow:
+                            mgr_self.meow.play()
+                        mgr_self.speak_tts(f"Ada pesan WhatsApp baru dari {sender}")
+                    mgr_self._call_bridge.call.emit(do_wa)
+                    self._send_cors(200)
+                    self.wfile.write(b'{"ok": true}')
+                    return
+
+                elif p == "/fish":
+                    count = int(payload.get("count", 1))
+                    reason = str(payload.get("reason", "Reward"))
+                    mgr_self._call_bridge.call.emit(lambda: mgr_self.reward_fish(count, reason))
+                    self._send_cors(200)
+                    self.wfile.write(b'{"ok": true}')
+                    return
+
+                elif p == "/note":
+                    text = str(payload.get("text", payload.get("append", ""))).strip()
+                    if text:
+                        mgr_self._call_bridge.call.emit(lambda: mgr_self.append_sticky_note(text))
+                    self._send_cors(200)
+                    self.wfile.write(b'{"ok": true}')
                     return
 
                 self._send_cors(404)
@@ -6200,6 +6606,7 @@ class Manager(QObject):
                             [{"text": ""}]
                     self.primary().say(ans,
                                        min(30.0, max(7.0, len(ans) / 9)))
+                    self.speak_tts(ans)
                 ui(done)
             except Exception as e:
                 msg = str(e)[:60]
@@ -6570,6 +6977,27 @@ class CatWindow(QWidget):
         menu = QMenu(self)
         mgr = self.mgr
 
+        cat_name = self.nameof()
+        act_ask = QAction(f"💬 Tanya {cat_name} AI… (Ctrl+Alt+C / Ctrl+Space)", menu)
+        act_ask.triggered.connect(mgr.open_ask_box)
+        menu.addAction(act_ask)
+
+        fishes = int(self.gcfg.get("fishes_count", 5))
+        act_fish = QAction(f"🐟 Beri Makan Ikan ({fishes} tersisa)", menu)
+        act_fish.triggered.connect(mgr.feed_fish)
+        menu.addAction(act_fish)
+
+        lvl, title, pts = mgr.get_affinity_info()
+        act_aff = QAction(f"💖 Afinitas: Level {lvl} ({title})", menu)
+        act_aff.triggered.connect(mgr.show_affinity_status)
+        menu.addAction(act_aff)
+
+        act_note = QAction("📝 Memo & Sticky Note Kucing (Ctrl+Alt+N)", menu)
+        act_note.triggered.connect(mgr.open_sticky_note)
+        menu.addAction(act_note)
+
+        menu.addSeparator()
+
         # Aksi Cepat Kesehatan & Interaksi di Paling Atas
         act_stretch_now = QAction("🧘‍♂️ Peregangan Sekarang! (Membesar)", menu)
         act_stretch_now.triggered.connect(lambda: mgr.trigger_stretch(manual=True))
@@ -6578,10 +7006,6 @@ class CatWindow(QWidget):
         act_water_now = QAction("🥛 Minum Air Bersama (+250 ml)", menu)
         act_water_now.triggered.connect(mgr.log_water_drink)
         menu.addAction(act_water_now)
-
-        act_fish = QAction("🐟 Beri Makan Ikan", menu)
-        act_fish.triggered.connect(lambda: self.give_snack())
-        menu.addAction(act_fish)
 
         act_yarn = QAction("🧶 Main Bola Benang", menu)
         act_yarn.triggered.connect(lambda: self.play_yarn())
@@ -6594,6 +7018,24 @@ class CatWindow(QWidget):
         menu.addSeparator()
 
         cust = menu.addMenu("Customization 🎨")
+
+        acc_menu = cust.addMenu("Aksesoris & Topi 🎀")
+        accessories_list = [
+            ("Tanpa Aksesoris (None)", "none"),
+            ("Kacamata Hacker Hitam 😎", "shades"),
+            ("Kacamata Emas Bulat 👓", "wireframes"),
+            ("Topi Programmer / Wisuda 🎓", "cap"),
+            ("Pita Merah Manis 🎀", "bow"),
+            ("Topi Pesta Kerucut 🥳", "party_hat")
+        ]
+        cur_acc = self.ccfg.get("accessory", "none")
+        for label, akey in accessories_list:
+            act = QAction(label, menu)
+            act.setCheckable(True)
+            act.setChecked(cur_acc == akey)
+            act.triggered.connect(lambda _=False, ak=akey, lbl=label: self.set_accessory(ak, lbl))
+            acc_menu.addAction(act)
+
         fur = cust.addMenu("Fur color")
         for name in sprites.PALETTES:
             if name in ("lilly", "jj", "mimi"):
@@ -6780,6 +7222,16 @@ class CatWindow(QWidget):
         pomo.addAction(stop)
 
         remm.addSeparator()
+        act_eye = QAction("Aturan Mata 20-20-20 (Setiap 20 Menit) 👀", menu)
+        act_eye.setCheckable(True)
+        act_eye.setChecked(self.gcfg.get("eye_care_20", True))
+        act_eye.triggered.connect(mgr.toggle_eye_care)
+        remm.addAction(act_eye)
+
+        act_batt = QAction("Cek Daya Baterai Laptop 🔋", menu)
+        act_batt.triggered.connect(mgr.check_battery_status_manual)
+        remm.addAction(act_batt)
+
         nm = QAction("Beritahu Kucing Namamu… 🏷️", menu)
         nm.triggered.connect(mgr.set_name)
         remm.addAction(nm)
@@ -7167,6 +7619,12 @@ class CatWindow(QWidget):
         upds.addAction(uinf)
 
         menu.addSeparator()
+        act_tts = QAction("Suara Kucing Alami (Windows TTS) 🔊", menu)
+        act_tts.setCheckable(True)
+        act_tts.setChecked(self.gcfg.get("voice_tts", True))
+        act_tts.triggered.connect(mgr.toggle_voice_tts)
+        menu.addAction(act_tts)
+
         ai_office_act = QAction("🏢 Buka Virtual AI Office (3D)", menu)
         ai_office_act.triggered.connect(mgr.open_ai_office)
         menu.addAction(ai_office_act)
@@ -7185,6 +7643,16 @@ class CatWindow(QWidget):
             pass
 
     # --------------------------------------------------------- menu actions -
+    def set_accessory(self, akey, label=""):
+        self.ccfg["accessory"] = akey
+        save_config(self.mgr.cfg)
+        self.update()
+        if akey != "none":
+            self.say(f"Aksesoris baruku: {label}! ✨", 2.5)
+            self.mgr.speak_tts(f"Gaya baruku: {label}")
+        else:
+            self.say("Melepas aksesoris 🐾", 2.0)
+
     def set_palette(self, name):
         self.ccfg["palette"] = name
         self.ccfg["custom_body"] = None
@@ -9552,6 +10020,87 @@ class CatWindow(QWidget):
                                           sx + 0.5 + grow * 2,
                                           sy + 0.5 + grow * 2), col)
 
+    def _draw_accessory(self, p, tx, ty, tw_, th_, name):
+        acc = self.ccfg.get("accessory", "none")
+        if not acc or acc == "none":
+            return
+
+        cw = tw_ / sprites.GRID_W
+        ch = th_ / sprites.GRID_H
+
+        def cell(cx, cy, w, h, col):
+            p.fillRect(QRectF(tx + cx * cw, ty + cy * ch,
+                              w * cw + 0.4, h * ch + 0.4), col)
+
+        if acc in ("shades", "sunglasses"):
+            black = QColor("#111318")
+            lens = QColor("#1e293b")
+            glare = QColor("#ffffff")
+            rim = QColor("#000000")
+            cell(11.0, 8.5, 4.0, 1.2, rim)
+            cell(3.8, 7.8, 6.4, 3.4, rim)
+            cell(4.2, 8.2, 5.6, 2.6, lens)
+            cell(5.0, 8.4, 1.2, 1.0, glare)
+            cell(7.0, 9.4, 0.8, 0.6, glare)
+            cell(15.8, 7.8, 6.4, 3.4, rim)
+            cell(16.2, 8.2, 5.6, 2.6, lens)
+            cell(17.0, 8.4, 1.2, 1.0, glare)
+            cell(19.0, 9.4, 0.8, 0.6, glare)
+            cell(2.2, 8.2, 2.0, 0.9, rim)
+            cell(21.8, 8.2, 2.0, 0.9, rim)
+
+        elif acc in ("wireframes", "glasses"):
+            gold = QColor("#f59e0b")
+            shine = QColor("#fef3c7")
+            cell(10.5, 8.6, 5.0, 0.7, gold)
+            cell(4.0, 7.5, 6.0, 0.7, gold)
+            cell(4.0, 10.5, 6.0, 0.7, gold)
+            cell(3.5, 8.0, 0.7, 2.8, gold)
+            cell(9.5, 8.0, 0.7, 2.8, gold)
+            cell(4.5, 8.0, 0.8, 0.8, shine)
+            cell(16.0, 7.5, 6.0, 0.7, gold)
+            cell(16.0, 10.5, 6.0, 0.7, gold)
+            cell(15.5, 8.0, 0.7, 2.8, gold)
+            cell(21.5, 8.0, 0.7, 2.8, gold)
+            cell(16.5, 8.0, 0.8, 0.8, shine)
+
+        elif acc in ("cap", "grad_cap"):
+            navy = QColor("#0f172a")
+            highlight = QColor("#1e293b")
+            tassel_gold = QColor("#f59e0b")
+            cell(7.0, 3.2, 12.0, 2.2, navy)
+            cell(4.0, 2.0, 18.0, 1.6, navy)
+            cell(6.0, 1.2, 14.0, 1.2, highlight)
+            cell(8.0, 0.5, 10.0, 1.0, highlight)
+            cell(12.3, 0.6, 1.4, 1.0, tassel_gold)
+            cell(13.5, 1.2, 3.5, 0.7, tassel_gold)
+            cell(16.5, 1.8, 0.8, 4.0, tassel_gold)
+            cell(16.0, 5.6, 1.8, 1.5, tassel_gold)
+
+        elif acc in ("bow", "ribbon"):
+            red = QColor("#e11d48")
+            dark_red = QColor("#9f1239")
+            knot = QColor("#fda4af")
+            cell(8.5, 12.2, 3.0, 2.2, red)
+            cell(9.2, 12.6, 1.4, 1.4, dark_red)
+            cell(14.5, 12.2, 3.0, 2.2, red)
+            cell(15.2, 12.6, 1.4, 1.4, dark_red)
+            cell(11.5, 12.4, 3.0, 2.0, knot)
+            cell(10.0, 14.2, 1.4, 2.0, red)
+            cell(14.6, 14.2, 1.4, 2.0, red)
+
+        elif acc in ("party_hat", "party"):
+            red = QColor("#ef4444")
+            yellow = QColor("#facc15")
+            cyan = QColor("#06b6d4")
+            pom = QColor("#ffffff")
+            cell(12.0, -3.5, 2.0, 2.0, pom)
+            cell(12.2, -1.8, 1.6, 1.5, red)
+            cell(11.5, -0.4, 3.0, 1.5, yellow)
+            cell(10.8, 1.0, 4.4, 1.5, cyan)
+            cell(10.0, 2.4, 6.0, 1.5, red)
+            cell(9.2, 3.8, 7.6, 1.5, yellow)
+
     def paintEvent(self, _ev):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing, False)
@@ -9832,6 +10381,7 @@ class CatWindow(QWidget):
         # rotate with the wobble tilt exactly like the sprite they sit on.
         if getattr(self, "cards_watching", False):
             self._draw_dealer_props(p, tx, ty, tw_, th_)
+        self._draw_accessory(p, tx, ty, tw_, th_, name)
         if self.state == STRETCH:
             self._draw_stretch_effects(p, now, tx, ty, tw_, th_, s)
         p.restore()
